@@ -14,7 +14,7 @@ export const supabase = (supabaseUrl && supabaseAnonKey)
     })
   : null;
 
-const LOCAL_AUTH_KEY = 'pace_student_auth_user_v2';
+const LOCAL_AUTH_KEY = 'pace_student_auth_user_v3';
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   if (supabase) {
@@ -34,23 +34,20 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     }
   }
 
-  // Fallback to local storage auth user
+  // Check local storage auth session
   try {
     const stored = localStorage.getItem(LOCAL_AUTH_KEY);
     if (stored) {
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      if (parsed?.id && parsed?.email) {
+        return parsed;
+      }
     }
   } catch (e) {
     // ignore
   }
 
-  // Default initial demo logged-in user so student can explore seamlessly
-  return {
-    id: 'user_arjun_singh',
-    email: 'arjun.singh@example.com',
-    name: 'Arjun Singh',
-    createdAt: new Date().toISOString(),
-  };
+  return null;
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<{ user: AuthUser | null; error?: string }> {
@@ -60,13 +57,13 @@ export async function signInWithEmail(email: string, password: string): Promise<
 
   if (supabase) {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) return { user: null, error: error.message };
       if (data.user) {
         const user: AuthUser = {
           id: data.user.id,
-          email: data.user.email || email,
-          name: data.user.user_metadata?.full_name || email.split('@')[0],
+          email: data.user.email || email.trim(),
+          name: data.user.user_metadata?.full_name || email.trim().split('@')[0],
           createdAt: data.user.created_at,
         };
         localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
@@ -77,15 +74,16 @@ export async function signInWithEmail(email: string, password: string): Promise<
     }
   }
 
-  // Local simulated authentication fallback
+  // Local authentication session fallback when Supabase is not configured
   if (password.length < 6) {
     return { user: null, error: 'Password must be at least 6 characters.' };
   }
 
+  const cleanEmail = email.trim();
   const user: AuthUser = {
-    id: `user_${Date.now()}`,
-    email,
-    name: email.split('@')[0].replace('.', ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+    id: `local_user_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
+    email: cleanEmail,
+    name: cleanEmail.split('@')[0].replace('.', ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
     createdAt: new Date().toISOString(),
   };
   localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
@@ -97,21 +95,24 @@ export async function signUpWithEmail(name: string, email: string, password: str
   if (!email || !password) return { user: null, error: 'Please provide email and password.' };
   if (password.length < 6) return { user: null, error: 'Password must be at least 6 characters.' };
 
+  const cleanEmail = email.trim();
+  const cleanName = name.trim();
+
   if (supabase) {
     try {
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: cleanEmail,
         password,
         options: {
-          data: { full_name: name.trim() },
+          data: { full_name: cleanName },
         },
       });
       if (error) return { user: null, error: error.message };
       if (data.user) {
         const user: AuthUser = {
           id: data.user.id,
-          email: data.user.email || email,
-          name: name.trim(),
+          email: data.user.email || cleanEmail,
+          name: cleanName,
           createdAt: data.user.created_at,
         };
         localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
@@ -123,9 +124,9 @@ export async function signUpWithEmail(name: string, email: string, password: str
   }
 
   const user: AuthUser = {
-    id: `user_${Date.now()}`,
-    email,
-    name: name.trim(),
+    id: `local_user_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
+    email: cleanEmail,
+    name: cleanName,
     createdAt: new Date().toISOString(),
   };
   localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
@@ -137,7 +138,7 @@ export async function resetPasswordForEmail(email: string): Promise<{ success: b
 
   if (supabase) {
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: window.location.origin,
       });
       if (error) return { success: false, error: error.message };

@@ -12,10 +12,13 @@ import {
   X,
   Plus,
   BookOpen,
+  History,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatDate, addDays, getDaysDiff } from '../services/plannerEngine';
 import { PlannedStudyItem } from '../types';
+
+const DAYS_PER_HISTORY_PAGE = 7;
 
 export const PlanScreen: React.FC = () => {
   const {
@@ -30,7 +33,11 @@ export const PlanScreen: React.FC = () => {
     setShowSyllabusImport,
   } = useApp();
 
-  const [period, setPeriod] = useState<'today' | 'tomorrow' | 'week' | 'calendar'>('week');
+  // Active view: 'current' (upcoming + today) vs 'history' (paginated past days)
+  const [activeView, setActiveView] = useState<'current' | 'history'>('current');
+  const [currentPeriod, setCurrentPeriod] = useState<'today' | 'tomorrow' | 'week' | 'twoweeks'>('week');
+  const [historyPage, setHistoryPage] = useState(1);
+
   const [reschedulingItem, setReschedulingItem] = useState<PlannedStudyItem | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
 
@@ -46,11 +53,53 @@ export const PlanScreen: React.FC = () => {
     plansByDate.get(p.date)!.push(p);
   }
 
-  // Get week dates starting today
+  // Current & Upcoming Dates
   const weekDates: string[] = [];
   for (let i = 0; i < 7; i++) {
     weekDates.push(addDays(todayStr, i));
   }
+
+  const twoWeekDates: string[] = [];
+  for (let i = 0; i < 14; i++) {
+    twoWeekDates.push(addDays(todayStr, i));
+  }
+
+  const currentDatesToDisplay =
+    currentPeriod === 'today'
+      ? [todayStr]
+      : currentPeriod === 'tomorrow'
+      ? [tomorrowStr]
+      : currentPeriod === 'week'
+      ? weekDates
+      : twoWeekDates;
+
+  // Past & Historical Dates
+  // Collect all distinct past dates that exist before today
+  const allPastDates: string[] = [];
+  const uniqueDates = Array.from(plansByDate.keys()).filter((d) => d < todayStr).sort((a, b) => b.localeCompare(a)); // latest first
+
+  // If no past dates with plans exist yet, generate at least recent 7 days in the past for history navigation
+  if (uniqueDates.length === 0) {
+    for (let i = 1; i <= 14; i++) {
+      allPastDates.push(addDays(todayStr, -i));
+    }
+  } else {
+    allPastDates.push(...uniqueDates);
+  }
+
+  const totalHistoryPages = Math.max(1, Math.ceil(allPastDates.length / DAYS_PER_HISTORY_PAGE));
+  const safeHistoryPage = Math.min(Math.max(1, historyPage), totalHistoryPages);
+
+  const historyStartIndex = (safeHistoryPage - 1) * DAYS_PER_HISTORY_PAGE;
+  const historyDatesToDisplay = allPastDates.slice(
+    historyStartIndex,
+    historyStartIndex + DAYS_PER_HISTORY_PAGE
+  );
+
+  const historyDateRangeLabel =
+    historyDatesToDisplay.length > 0
+      ? `${new Date(historyDatesToDisplay[historyDatesToDisplay.length - 1] + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${new Date(historyDatesToDisplay[0] + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+      : '';
 
   // Day format helper
   const getDayHeader = (dateStr: string) => {
@@ -58,6 +107,7 @@ export const PlanScreen: React.FC = () => {
     const dayName = d.toLocaleDateString('en-IN', { weekday: 'long' });
     const dayItems = plansByDate.get(dateStr) || [];
     const totalMinutes = dayItems.reduce((acc, curr) => acc + curr.plannedMinutes, 0);
+    const completedMinutes = dayItems.reduce((acc, curr) => acc + (curr.completed ? (curr.completedMinutes || curr.plannedMinutes) : 0), 0);
     const h = Math.floor(totalMinutes / 60);
     const m = totalMinutes % 60;
     const timeStr = `${h > 0 ? `${h}h ` : ''}${m > 0 ? `${m}m` : '0m'}`;
@@ -65,7 +115,8 @@ export const PlanScreen: React.FC = () => {
     return {
       dayName,
       timeStr,
-      dateDisplay: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+      completedMinutes,
+      dateDisplay: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
       totalMinutes,
     };
   };
@@ -76,15 +127,6 @@ export const PlanScreen: React.FC = () => {
     const dayOfWeek = d.getDay();
     return timetable.filter((t) => t.days.includes(dayOfWeek));
   };
-
-  const datesToDisplay =
-    period === 'today'
-      ? [todayStr]
-      : period === 'tomorrow'
-      ? [tomorrowStr]
-      : period === 'week'
-      ? weekDates
-      : weekDates.concat([addDays(todayStr, 7), addDays(todayStr, 8), addDays(todayStr, 9)]);
 
   const handleConfirmReschedule = (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,43 +180,114 @@ export const PlanScreen: React.FC = () => {
     );
   }
 
+  const activeDates = activeView === 'current' ? currentDatesToDisplay : historyDatesToDisplay;
+
   return (
     <div id="plan_screen" className="max-w-3xl mx-auto space-y-8 pb-24 md:pb-12 pt-2">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl sm:text-4xl font-serif font-light tracking-tight text-[#111827] dark:text-white mb-1">
-          Your Plan
-        </h1>
-        <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 font-normal">
-          Your balanced daily study roadmap
-        </p>
-      </div>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl sm:text-4xl font-serif font-light tracking-tight text-[#111827] dark:text-white mb-1">
+            Your Plan
+          </h1>
+          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 font-normal">
+            Your balanced daily study roadmap & paginated study history
+          </p>
+        </div>
 
-      {/* Period Selector Tabs */}
-      <div className="flex items-center gap-1.5 p-1 bg-[#F3F4F6] dark:bg-[#1A1B1F] border border-transparent dark:border-[#2E3036] rounded-xl w-full sm:w-auto">
-        {(['today', 'tomorrow', 'week', 'calendar'] as const).map((mode) => (
+        {/* Top View Toggle: Current & Upcoming vs Plan History */}
+        <div className="flex items-center gap-1 p-1 bg-[#F3F4F6] dark:bg-[#1A1B1F] border border-transparent dark:border-[#2E3036] rounded-xl self-start sm:self-auto">
           <button
-            key={mode}
-            id={`tab_plan_${mode}`}
-            onClick={() => setPeriod(mode)}
-            className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs sm:text-sm font-medium capitalize transition-all ${
-              period === mode
-                ? 'bg-white dark:bg-[#26282E] text-[#4F46E5] dark:text-indigo-400 font-semibold shadow-xs'
+            onClick={() => setActiveView('current')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeView === 'current'
+                ? 'bg-white dark:bg-[#26282E] text-[#4F46E5] dark:text-indigo-400 shadow-xs'
                 : 'text-gray-600 dark:text-gray-400 hover:text-[#111827] dark:hover:text-white'
             }`}
           >
-            {mode === 'week' ? 'This week' : mode}
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span>Current & Upcoming</span>
           </button>
-        ))}
+          <button
+            onClick={() => setActiveView('history')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeView === 'history'
+                ? 'bg-white dark:bg-[#26282E] text-[#4F46E5] dark:text-indigo-400 shadow-xs'
+                : 'text-gray-600 dark:text-gray-400 hover:text-[#111827] dark:hover:text-white'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Plan History</span>
+          </button>
+        </div>
       </div>
+
+      {/* Controls for Current View */}
+      {activeView === 'current' && (
+        <div className="flex items-center gap-1.5 p-1 bg-[#F3F4F6] dark:bg-[#1A1B1F] border border-transparent dark:border-[#2E3036] rounded-xl w-full sm:w-auto">
+          {(['today', 'tomorrow', 'week', 'twoweeks'] as const).map((mode) => (
+            <button
+              key={mode}
+              id={`tab_plan_${mode}`}
+              onClick={() => setCurrentPeriod(mode)}
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs sm:text-sm font-medium capitalize transition-all ${
+                currentPeriod === mode
+                  ? 'bg-white dark:bg-[#26282E] text-[#4F46E5] dark:text-indigo-400 font-semibold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-[#111827] dark:hover:text-white'
+              }`}
+            >
+              {mode === 'week' ? 'This week (7d)' : mode === 'twoweeks' ? 'Next 14 days' : mode}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Controls for History View (Pagination Bar) */}
+      {activeView === 'history' && (
+        <div className="p-4 bg-white dark:bg-[#1A1B1F] border border-[#E5E5E1] dark:border-[#2E3036] rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+          <div className="space-y-0.5 text-center sm:text-left">
+            <span className="text-xs font-semibold text-[#111827] dark:text-white block">
+              Historical Study Logs
+            </span>
+            <span className="text-[11px] text-gray-400 block">
+              Showing {historyDateRangeLabel} ({DAYS_PER_HISTORY_PAGE} days per page)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+              disabled={safeHistoryPage <= 1}
+              className="px-3 py-1.5 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 text-xs font-medium text-gray-700 dark:text-gray-300 transition-colors flex items-center gap-1"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Newer</span>
+            </button>
+
+            <span className="text-xs font-semibold px-2 text-gray-700 dark:text-gray-300">
+              Page {safeHistoryPage} of {totalHistoryPages}
+            </span>
+
+            <button
+              onClick={() => setHistoryPage((p) => Math.min(totalHistoryPages, p + 1))}
+              disabled={safeHistoryPage >= totalHistoryPages}
+              className="px-3 py-1.5 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 text-xs font-medium text-gray-700 dark:text-gray-300 transition-colors flex items-center gap-1"
+            >
+              <span>Older</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Days List */}
       <div className="space-y-6">
-        {datesToDisplay.map((dateStr) => {
-          const { dayName, timeStr, dateDisplay } = getDayHeader(dateStr);
+        {activeDates.map((dateStr) => {
+          const { dayName, timeStr, dateDisplay, completedMinutes } = getDayHeader(dateStr);
           const dayItems = plansByDate.get(dateStr) || [];
           const commitments = getCommitmentsForDate(dateStr);
           const isToday = dateStr === todayStr;
+          const isPast = dateStr < todayStr;
 
           return (
             <div key={dateStr} id={`plan_day_${dateStr}`} className="space-y-3">
@@ -191,6 +304,11 @@ export const PlanScreen: React.FC = () => {
                   {isToday && (
                     <span className="bg-indigo-50 dark:bg-indigo-950/60 text-[#4F46E5] dark:text-indigo-300 text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full">
                       Today
+                    </span>
+                  )}
+                  {isPast && (
+                    <span className="text-gray-400 text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800">
+                      Past
                     </span>
                   )}
                 </div>
@@ -220,7 +338,7 @@ export const PlanScreen: React.FC = () => {
               {/* Items Card List */}
               {dayItems.length === 0 ? (
                 <div className="p-4 rounded-2xl border border-dashed border-[#E5E5E1] dark:border-[#2E3036] text-center text-xs text-gray-400 dark:text-gray-500 bg-white/40 dark:bg-[#1A1B1F]/40">
-                  Rest day or catch-up buffer
+                  {isPast ? 'No study sessions logged on this day' : 'Rest day or catch-up buffer'}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -236,7 +354,7 @@ export const PlanScreen: React.FC = () => {
                         key={item.id}
                         id={`plan_item_${item.id}`}
                         className={`p-4 bg-white dark:bg-[#1A1B1F] border border-[#E5E5E1] dark:border-[#2E3036] hover:border-[#4F46E5] dark:hover:border-indigo-500 rounded-2xl flex items-center justify-between gap-3 transition-all ${
-                          item.completed ? 'opacity-65 bg-gray-50/50 dark:bg-[#15161A]/50' : ''
+                          item.completed ? 'opacity-70 bg-gray-50/50 dark:bg-[#15161A]/50' : ''
                         }`}
                       >
                         {/* Checkbox & Details */}
@@ -270,6 +388,12 @@ export const PlanScreen: React.FC = () => {
                                   Revision
                                 </span>
                               )}
+
+                              {item.completed && (
+                                <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full">
+                                  Completed
+                                </span>
+                              )}
                             </div>
 
                             {/* Subtopic row */}
@@ -287,6 +411,14 @@ export const PlanScreen: React.FC = () => {
                               <span>{subject.name}</span>
                               <span>•</span>
                               <span>{item.plannedMinutes} min</span>
+                              {item.completed && item.completedMinutes && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-emerald-600 dark:text-emerald-400">
+                                    Studied: {item.completedMinutes}m
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>

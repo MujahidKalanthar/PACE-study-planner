@@ -230,12 +230,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     getCurrentUser().then((user) => {
-      // If user signed in, sync user details
-      if (user && user.email !== 'arjun.singh@example.com') {
-        setAuthUser(user);
-      } else {
-        setAuthUser(null);
-      }
+      setAuthUser(user);
     });
 
     if (supabase) {
@@ -888,31 +883,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Social (Friends)
   const sendFriendRequest = (searchQuery: string): { success: boolean; message: string } => {
-    if (!searchQuery.trim()) return { success: false, message: 'Please enter a name or username.' };
-
-    const newFriend: Friend = {
-      id: `fr_${Date.now()}`,
-      name: searchQuery.trim(),
-      avatar: searchQuery.trim().split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase(),
-      streakDays: 0,
-      weeklyStudyMinutes: 0,
-      showStats: true,
-      nudgedToday: false,
-    };
-
-    setData((prev: any) => ({
-      ...prev,
-      friends: [...(prev.friends || []), newFriend],
-    }));
-
-    addNotification({
-      type: 'friend_accepted',
-      title: 'Study Buddy Added',
-      message: `${newFriend.name} was added to your study circle!`,
-      targetTab: 'friends',
-    });
-
-    return { success: true, message: `Connected with ${newFriend.name}!` };
+    if (!searchQuery.trim()) return { success: false, message: 'Please enter a name or email.' };
+    return { success: false, message: 'Please search for registered classmates in Study Circle.' };
   };
 
   const acceptFriendRequest = (requestId: string) => {

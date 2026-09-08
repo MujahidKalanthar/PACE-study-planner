@@ -9,7 +9,7 @@ import {
   ArrowRight,
   Loader2,
   CheckCircle2,
-  ChevronDown,
+  AlertCircle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { PRESET_COURSES } from '../data/curatedSyllabi';
@@ -21,18 +21,20 @@ export const SyllabusImportModal: React.FC = () => {
   const [importMode, setImportMode] = useState<'preset' | 'ai_upload' | 'ai_text'>('preset');
   const [selectedPresetKey, setSelectedPresetKey] = useState(PRESET_COURSES[0].key);
 
-  // AI text input state
+  // AI text & file input state
   const [rawText, setRawText] = useState('');
   const [selectedFile, setSelectedFile] = useState<{ name: string; base64: string; mimeType: string } | null>(null);
 
-  // Processing state
+  // Processing & error states
   const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [parsedData, setParsedData] = useState<{ subjects: any[] } | null>(null);
-  const [examName, setExamName] = useState(exam?.name || 'My Exam');
+  const [examName, setExamName] = useState(exam?.name || 'My Course / Exam');
 
   if (!showSyllabusImport) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMessage(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -50,7 +52,11 @@ export const SyllabusImportModal: React.FC = () => {
   };
 
   const handleParseAI = async () => {
-    if (!rawText.trim() && !selectedFile) return;
+    setErrorMessage(null);
+    if (!rawText.trim() && !selectedFile) {
+      setErrorMessage('Please paste your syllabus text or upload a syllabus file.');
+      return;
+    }
 
     setIsProcessing(true);
     try {
@@ -58,56 +64,28 @@ export const SyllabusImportModal: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: rawText,
+          text: rawText.trim() || undefined,
           fileData: selectedFile?.base64,
           mimeType: selectedFile?.mimeType,
-          examContext: examName,
+          examContext: examName.trim() || undefined,
         }),
       });
 
-      if (!res.ok) throw new Error('Failed to parse syllabus');
-      const data = await res.json();
-      setParsedData(data);
-    } catch (err) {
-      console.error(err);
-      // Clean fallback parser from plain text lines
-      const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
-      let currentSubject = 'General Subject';
-      const extractedSubjects: { name: string; chapters: { name: string; estimatedMinutes: number; difficulty: 'medium'; subtopics: string[] }[] }[] = [];
-      let currentChapters: { name: string; estimatedMinutes: number; difficulty: 'medium'; subtopics: string[] }[] = [];
-
-      lines.forEach((line) => {
-        if (line.includes(':')) {
-          if (currentChapters.length > 0) {
-            extractedSubjects.push({ name: currentSubject, chapters: [...currentChapters] });
-            currentChapters = [];
-          }
-          const parts = line.split(':');
-          currentSubject = parts[0].trim();
-          const items = parts[1].split(',').map((s) => s.trim()).filter(Boolean);
-          items.forEach((item) => {
-            currentChapters.push({ name: item, estimatedMinutes: 45, difficulty: 'medium', subtopics: ['Core Topics'] });
-          });
-        } else {
-          currentChapters.push({ name: line, estimatedMinutes: 45, difficulty: 'medium', subtopics: ['Basics'] });
-        }
-      });
-
-      if (currentChapters.length > 0) {
-        extractedSubjects.push({ name: currentSubject, chapters: currentChapters });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "We couldn't process your syllabus. Please try again or enter it manually.");
       }
 
-      setParsedData({
-        subjects: extractedSubjects.length > 0 ? extractedSubjects : [
-          {
-            name: examName || 'Extracted Course',
-            chapters: [
-              { name: 'Foundations & Basics', difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Core Theory'] },
-              { name: 'Advanced Applications', difficulty: 'medium', estimatedMinutes: 50, subtopics: ['Numericals & Practice'] },
-            ],
-          },
-        ],
-      });
+      const data = await res.json();
+      if (!data?.subjects || !Array.isArray(data.subjects) || data.subjects.length === 0) {
+        throw new Error("We couldn't extract valid subjects and chapters. Please try again or enter it manually.");
+      }
+
+      setParsedData(data);
+    } catch (err: any) {
+      console.error('[Syllabus Import Error]:', err);
+      setErrorMessage(err.message || "We couldn't process your syllabus. Please try again or enter it manually.");
+      setParsedData(null);
     } finally {
       setIsProcessing(false);
     }
@@ -130,9 +108,9 @@ export const SyllabusImportModal: React.FC = () => {
 
   const handleAcceptParsed = () => {
     if (parsedData?.subjects) {
-      if (!exam && examName) {
+      if (!exam && examName.trim()) {
         setExam({
-          name: examName,
+          name: examName.trim(),
           targetDate: new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10),
         });
       }
@@ -154,7 +132,7 @@ export const SyllabusImportModal: React.FC = () => {
               Import Syllabus
             </h2>
             <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 font-normal mt-0.5">
-              Choose a starter curriculum or extract chapters from your files with AI
+              Extract chapters from your uploaded syllabus with AI or select a starter curriculum
             </p>
           </div>
           <button
@@ -165,11 +143,27 @@ export const SyllabusImportModal: React.FC = () => {
           </button>
         </div>
 
+        {/* Real Error Banner */}
+        {errorMessage && (
+          <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-2xl flex items-start gap-3 text-xs text-rose-800 dark:text-rose-200 animate-in fade-in">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold">{errorMessage}</p>
+              <p className="text-[11px] text-rose-700 dark:text-rose-300">
+                You can also add your subjects and chapters manually in the Syllabus tab.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Tab switch */}
         {!parsedData && (
           <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-[#141518] rounded-xl text-xs font-medium">
             <button
-              onClick={() => setImportMode('preset')}
+              onClick={() => {
+                setErrorMessage(null);
+                setImportMode('preset');
+              }}
               className={`flex-1 py-1.5 rounded-lg transition-all ${
                 importMode === 'preset'
                   ? 'bg-white dark:bg-[#23252B] text-[#111827] dark:text-white shadow-xs font-semibold'
@@ -179,7 +173,10 @@ export const SyllabusImportModal: React.FC = () => {
               Starter Syllabi
             </button>
             <button
-              onClick={() => setImportMode('ai_upload')}
+              onClick={() => {
+                setErrorMessage(null);
+                setImportMode('ai_upload');
+              }}
               className={`flex-1 py-1.5 rounded-lg transition-all ${
                 importMode === 'ai_upload'
                   ? 'bg-white dark:bg-[#23252B] text-[#111827] dark:text-white shadow-xs font-semibold'
@@ -189,7 +186,10 @@ export const SyllabusImportModal: React.FC = () => {
               Upload PDF / Image
             </button>
             <button
-              onClick={() => setImportMode('ai_text')}
+              onClick={() => {
+                setErrorMessage(null);
+                setImportMode('ai_text');
+              }}
               className={`flex-1 py-1.5 rounded-lg transition-all ${
                 importMode === 'ai_text'
                   ? 'bg-white dark:bg-[#23252B] text-[#111827] dark:text-white shadow-xs font-semibold'
@@ -262,10 +262,10 @@ export const SyllabusImportModal: React.FC = () => {
               <Upload className="w-8 h-8 text-gray-400 mx-auto" />
               <div>
                 <p className="text-xs sm:text-sm font-medium text-[#111827] dark:text-white">
-                  {selectedFile ? selectedFile.name : 'Upload PDF syllabus or chapter list photo'}
+                  {selectedFile ? selectedFile.name : 'Upload PDF syllabus or chapter list document'}
                 </p>
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Supports coaching test series schedules, syllabus PDFs, or course outlines
+                  Supports syllabus PDFs, course outlines, curriculum sheets, or chapter photos
                 </p>
               </div>
               <label className="inline-block px-4 py-2 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-[#4F46E5] dark:text-indigo-300 text-xs font-medium rounded-xl cursor-pointer transition-colors">
@@ -281,13 +281,13 @@ export const SyllabusImportModal: React.FC = () => {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                Exam / Subject Context
+                Exam / Course Target Name
               </label>
               <input
                 type="text"
                 value={examName}
                 onChange={(e) => setExamName(e.target.value)}
-                placeholder="e.g. Term 1 Exam or GATE Prep"
+                placeholder="e.g. Physics Honors, GATE CS, Semester 3"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs sm:text-sm"
               />
             </div>
@@ -300,7 +300,7 @@ export const SyllabusImportModal: React.FC = () => {
               {isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Extracting Syllabus with AI...</span>
+                  <span>Analyzing & Extracting with AI...</span>
                 </>
               ) : (
                 <>
@@ -317,14 +317,14 @@ export const SyllabusImportModal: React.FC = () => {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                Paste Syllabus / Chapter Names
+                Paste Syllabus / Course Content
               </label>
               <textarea
                 rows={5}
                 value={rawText}
                 onChange={(e) => setRawText(e.target.value)}
-                placeholder="e.g.&#10;Physics: Kinematics, Laws of Motion, Work Energy Power&#10;Chemistry: Solutions, Electrochemistry&#10;Maths: Matrices, Integrals, Probability"
-                className="w-full p-3 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs leading-relaxed focus:border-[#4F46E5] focus:outline-none"
+                placeholder="e.g.&#10;Subject: Quantum Widget Studies&#10;Chapters:&#10;- Banana Mechanics&#10;- Orbital Sandwich Theory&#10;- Recursive Thermodynamics"
+                className="w-full p-3 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs leading-relaxed focus:border-[#4F46E5] focus:outline-none font-mono"
               />
             </div>
 
@@ -336,7 +336,7 @@ export const SyllabusImportModal: React.FC = () => {
                 type="text"
                 value={examName}
                 onChange={(e) => setExamName(e.target.value)}
-                placeholder="e.g. College Semester 4"
+                placeholder="e.g. Advanced Widget Science"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs sm:text-sm"
               />
             </div>
@@ -349,7 +349,7 @@ export const SyllabusImportModal: React.FC = () => {
               {isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Structuring Chapters...</span>
+                  <span>Structuring Chapters with AI...</span>
                 </>
               ) : (
                 <>
@@ -361,31 +361,42 @@ export const SyllabusImportModal: React.FC = () => {
           </div>
         )}
 
-        {/* Extracted Preview Step */}
+        {/* Extracted Preview & Confirmation Step */}
         {parsedData && (
           <div className="space-y-4">
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-200">
+            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-200">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>
-                Found {parsedData.subjects.length} subjects with{' '}
+                Found {parsedData.subjects.length} subject(s) with{' '}
                 {parsedData.subjects.reduce((acc, s) => acc + s.chapters.length, 0)} chapters!
               </span>
             </div>
 
-            <div className="max-h-60 overflow-y-auto space-y-3 p-1">
+            <div className="max-h-64 overflow-y-auto space-y-3 p-1">
               {parsedData.subjects.map((sub: any, i: number) => (
                 <div
                   key={i}
-                  className="p-3.5 bg-gray-50 dark:bg-[#141518] border border-[#E5E5E1] dark:border-[#2E3036] rounded-2xl space-y-1.5"
+                  className="p-3.5 bg-gray-50 dark:bg-[#141518] border border-[#E5E5E1] dark:border-[#2E3036] rounded-2xl space-y-2"
                 >
                   <h4 className="font-semibold text-xs text-[#111827] dark:text-white uppercase tracking-wider">
                     {sub.name}
                   </h4>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                  <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
                     {sub.chapters.map((ch: any, ci: number) => (
-                      <div key={ci} className="flex justify-between">
-                        <span>{ch.name}</span>
-                        <span className="text-[11px] text-gray-400">~{ch.estimatedMinutes}m</span>
+                      <div key={ci} className="p-2 rounded-xl bg-white dark:bg-[#1C1E24] border border-gray-100 dark:border-[#26282E] flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <span className="font-medium text-xs text-gray-800 dark:text-gray-200 block truncate">
+                            {ch.name}
+                          </span>
+                          {ch.subtopics && ch.subtopics.length > 0 && (
+                            <span className="text-[10px] text-gray-400 block truncate mt-0.5">
+                              {ch.subtopics.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-[#4F46E5] dark:text-indigo-400 font-semibold shrink-0">
+                          ~{ch.estimatedMinutes}m
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -396,13 +407,13 @@ export const SyllabusImportModal: React.FC = () => {
             <div className="flex gap-2">
               <button
                 onClick={() => setParsedData(null)}
-                className="flex-1 py-2.5 border border-[#E5E5E1] dark:border-[#2E3036] text-xs font-medium text-gray-700 dark:text-gray-300 rounded-xl"
+                className="flex-1 py-2.5 border border-[#E5E5E1] dark:border-[#2E3036] text-xs font-medium text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 Back / Retry
               </button>
               <button
                 onClick={handleAcceptParsed}
-                className="flex-1 py-2.5 bg-[#4F46E5] hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs"
+                className="flex-1 py-2.5 bg-[#4F46E5] hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
               >
                 Import to Syllabus
               </button>
