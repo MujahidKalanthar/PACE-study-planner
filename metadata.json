@@ -1,0 +1,6 @@
+{
+  "name": "PACE — Personalized Academic Planning & Execution",
+  "description": "A simple, intelligent study planner for Class 11 and 12 students in India preparing for CBSE, JEE, NEET, and competitive exams.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
