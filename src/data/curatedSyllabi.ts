@@ -203,6 +203,97 @@ export const PRESET_COURSES: PresetCourse[] = [
     ]
   },
   {
+    key: 'class_11',
+    title: 'Class 11 (PCM & PCB Core)',
+    subtitle: 'Physics, Chemistry, Mathematics & Biology Starter Syllabus for Class 11',
+    subjects: [
+      {
+        id: 'sub_phy_11',
+        name: 'Physics',
+        color: '#3B82F6',
+        chapters: [
+          { name: 'Units & Measurements', classLevel: 11, difficulty: 'easy', estimatedMinutes: 30, subtopics: ['SI Units', 'Dimensional Analysis', 'Errors in Measurement'] },
+          { name: 'Motion in a Straight Line', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Frame of Reference', 'Displacement & Speed', 'Uniform Acceleration'] },
+          { name: 'Motion in a Plane', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Vector Addition & Scalar Product', 'Projectile Motion', 'Uniform Circular Motion'] },
+          { name: 'Laws of Motion', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Newton’s Laws of Motion', 'Static & Kinetic Friction', 'Centripetal Force'] },
+          { name: 'Work, Energy & Power', classLevel: 11, difficulty: 'easy', estimatedMinutes: 40, subtopics: ['Work-Energy Theorem', 'Conservation of Mechanical Energy', 'Elastic & Inelastic Collisions'] },
+          { name: 'System of Particles & Rotational Motion', classLevel: 11, difficulty: 'hard', estimatedMinutes: 55, subtopics: ['Center of Mass', 'Torque & Angular Momentum', 'Moment of Inertia'] },
+          { name: 'Gravitation', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Kepler’s Laws', 'Acceleration due to Gravity', 'Escape & Orbital Velocity'] },
+          { name: 'Mechanical Properties of Solids', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Stress-Strain Diagram', 'Hooke’s Law', 'Young’s Modulus'] },
+          { name: 'Mechanical Properties of Fluids', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Pascal’s Law & Viscosity', 'Bernoulli’s Theorem', 'Surface Tension & Capillarity'] },
+          { name: 'Thermal Properties of Matter', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Thermal Expansion', 'Calorimetry', 'Conduction, Convection & Radiation'] },
+          { name: 'Thermodynamics', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['First & Second Laws', 'Isothermal & Adiabatic Processes', 'Heat Engines'] },
+          { name: 'Kinetic Theory', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Ideal Gas Equation', 'Law of Equipartition of Energy', 'Mean Free Path'] },
+          { name: 'Oscillations', classLevel: 11, difficulty: 'hard', estimatedMinutes: 50, subtopics: ['Simple Harmonic Motion', 'Simple Pendulum', 'Damped & Forced Oscillations'] },
+          { name: 'Waves', classLevel: 11, difficulty: 'hard', estimatedMinutes: 50, subtopics: ['Transverse & Longitudinal Waves', 'Speed of Sound', 'Doppler Effect & Beats'] },
+        ]
+      },
+      {
+        id: 'sub_chem_11',
+        name: 'Chemistry',
+        color: '#10B981',
+        chapters: [
+          { name: 'Some Basic Concepts of Chemistry', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Atomic & Molecular Masses', 'Mole Concept', 'Stoichiometry'] },
+          { name: 'Structure of Atom', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Bohr’s Model', 'Quantum Numbers', 'De Broglie & Heisenberg Principle'] },
+          { name: 'Classification of Elements & Periodicity', classLevel: 11, difficulty: 'easy', estimatedMinutes: 30, subtopics: ['Periodic Trends', 'Ionization Enthalpy', 'Electron Gain Enthalpy'] },
+          { name: 'Chemical Bonding & Molecular Structure', classLevel: 11, difficulty: 'hard', estimatedMinutes: 50, subtopics: ['Ionic & Covalent Bonds', 'VSEPR Theory & Hybridization', 'Molecular Orbital Theory'] },
+          { name: 'Chemical Thermodynamics', classLevel: 11, difficulty: 'hard', estimatedMinutes: 50, subtopics: ['Enthalpy & Hess’s Law', 'Entropy & Gibbs Free Energy', 'Spontaneity'] },
+          { name: 'Equilibrium', classLevel: 11, difficulty: 'hard', estimatedMinutes: 55, subtopics: ['Law of Mass Action', 'Le Chatelier’s Principle', 'pH, Buffers & Solubility Product'] },
+          { name: 'Redox Reactions', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Oxidation Number Rules', 'Balancing Redox Equations', 'Electrochemical Series'] },
+          { name: 'Organic Chemistry: Basic Principles & Techniques', classLevel: 11, difficulty: 'hard', estimatedMinutes: 55, subtopics: ['IUPAC Nomenclature', 'Inductive & Resonance Effects', 'Purification & Chromatography'] },
+          { name: 'Hydrocarbons', classLevel: 11, difficulty: 'medium', estimatedMinutes: 50, subtopics: ['Alkanes, Alkenes & Alkynes', 'Aromatic Hydrocarbons (Benzene)', 'Electrophilic Substitution'] },
+        ]
+      },
+      {
+        id: 'sub_math_11',
+        name: 'Mathematics',
+        color: '#8B5CF6',
+        chapters: [
+          { name: 'Sets', classLevel: 11, difficulty: 'easy', estimatedMinutes: 30, subtopics: ['Empty & Finite Sets', 'Venn Diagrams', 'Union & Intersection Operations'] },
+          { name: 'Relations & Functions', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Cartesian Product of Sets', 'Domain & Range', 'Polynomial & Rational Functions'] },
+          { name: 'Trigonometric Functions', classLevel: 11, difficulty: 'hard', estimatedMinutes: 50, subtopics: ['Radian & Degree Measure', 'Compound Angle Formulas', 'Trigonometric Equations'] },
+          { name: 'Complex Numbers & Quadratic Equations', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Algebra of Complex Numbers', 'Argand Plane', 'Quadratic Equations with Complex Roots'] },
+          { name: 'Linear Inequalities', classLevel: 11, difficulty: 'easy', estimatedMinutes: 30, subtopics: ['Algebraic Solutions in One Variable', 'Graphical Representation'] },
+          { name: 'Permutations & Combinations', classLevel: 11, difficulty: 'hard', estimatedMinutes: 50, subtopics: ['Fundamental Principle of Counting', 'Factorial Notation', 'Combinations Formula'] },
+          { name: 'Binomial Theorem', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Binomial Expansion', 'General & Middle Terms'] },
+          { name: 'Sequences & Series', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Arithmetic Progression (AP)', 'Geometric Progression (GP)', 'Sum to n Terms'] },
+          { name: 'Straight Lines', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Slope of a Line', 'Slope-Intercept & Two-Point Forms', 'Distance of Point from Line'] },
+          { name: 'Conic Sections', classLevel: 11, difficulty: 'hard', estimatedMinutes: 55, subtopics: ['Standard Equation of Parabola', 'Ellipse Equations', 'Hyperbola Properties'] },
+          { name: 'Introduction to 3D Geometry', classLevel: 11, difficulty: 'easy', estimatedMinutes: 30, subtopics: ['Coordinate Axes & Octants', 'Distance Formula in 3D', 'Section Formula'] },
+          { name: 'Limits & Derivatives', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Intuitive Concept of Limit', 'Standard Limits', 'First Principle of Derivative'] },
+          { name: 'Statistics', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Mean Deviation', 'Variance & Standard Deviation', 'Analysis of Frequency Distributions'] },
+          { name: 'Probability', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Random Experiments & Sample Spaces', 'Event Types', 'Axiomatic Probability'] },
+        ]
+      },
+      {
+        id: 'sub_bio_11',
+        name: 'Biology',
+        color: '#EC4899',
+        chapters: [
+          { name: 'The Living World', classLevel: 11, difficulty: 'easy', estimatedMinutes: 25, subtopics: ['What is Living?', 'Taxonomic Categories', 'Binomial Nomenclature'] },
+          { name: 'Biological Classification', classLevel: 11, difficulty: 'medium', estimatedMinutes: 35, subtopics: ['Five Kingdom System', 'Monera & Protista', 'Fungi, Viruses & Lichens'] },
+          { name: 'Plant Kingdom', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Algae, Bryophytes & Pteridophytes', 'Gymnosperms & Angiosperms', 'Alternation of Generations'] },
+          { name: 'Animal Kingdom', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Salient Features of Phyla', 'Non-Chordates', 'Chordate Classes'] },
+          { name: 'Morphology of Flowering Plants', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Root, Stem & Leaf Modifications', 'Inflorescence & Flower', 'Fruit & Seed Description'] },
+          { name: 'Anatomy of Flowering Plants', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Meristematic & Permanent Tissues', 'Internal Structure of Dicot/Monocot', 'Secondary Growth'] },
+          { name: 'Structural Organisation in Animals', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Epithelial & Connective Tissues', 'Muscular & Neural Tissues', 'Frog Morphology & Function'] },
+          { name: 'Cell: The Unit of Life', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Prokaryotic vs Eukaryotic Cell', 'Endomembrane System', 'Mitochondria, Plastids & Nucleus'] },
+          { name: 'Biomolecules', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Proteins & Amino Acids', 'Carbohydrates & Lipids', 'Enzyme Action & Factors'] },
+          { name: 'Cell Cycle & Cell Division', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Cell Cycle Phases (G1, S, G2)', 'Mitosis Stages', 'Meiosis I & II Significance'] },
+          { name: 'Photosynthesis in Higher Plants', classLevel: 11, difficulty: 'hard', estimatedMinutes: 50, subtopics: ['Light Reaction & Photophosphorylation', 'Calvin Cycle (C3)', 'Hatch-Slack Pathway (C4)'] },
+          { name: 'Respiration in Plants', classLevel: 11, difficulty: 'hard', estimatedMinutes: 45, subtopics: ['Glycolysis', 'Fermentation & Krebs Cycle', 'Electron Transport System'] },
+          { name: 'Plant Growth & Development', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Phytohormones (Auxin, Gibberellin, Cytokinin)', 'Ethylene & ABA', 'Photoperiodism'] },
+          { name: 'Breathing & Exchange of Gases', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Mechanism of Breathing', 'Respiratory Volumes & Capacities', 'Exchange & Transport of Gases'] },
+          { name: 'Body Fluids & Circulation', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Blood Composition & Groups', 'Cardiac Cycle & ECG', 'Double Circulation'] },
+          { name: 'Excretory Products & Their Elimination', classLevel: 11, difficulty: 'medium', estimatedMinutes: 40, subtopics: ['Nephron Structure', 'Urine Formation', 'Renin-Angiotensin System'] },
+          { name: 'Locomotion & Movement', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Types of Movement', 'Sliding Filament Theory', 'Joints & Skeletal Disorders'] },
+          { name: 'Neural Control & Coordination', classLevel: 11, difficulty: 'medium', estimatedMinutes: 45, subtopics: ['Conduction of Nerve Impulse', 'Central Nervous System', 'Reflex Action'] },
+          { name: 'Chemical Coordination & Integration', classLevel: 11, difficulty: 'easy', estimatedMinutes: 35, subtopics: ['Endocrine Glands', 'Hormones of Pituitary & Thyroid', 'Mechanism of Hormone Action'] },
+        ]
+      }
+    ]
+  },
+  {
     key: 'gate_cs',
     title: 'Computer Science & GATE Core',
     subtitle: 'Data Structures, Algorithms, OS, DBMS & Computer Networks',

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MessageSquare, AlertCircle, ShieldCheck, FileText, Heart, Sparkles, Check, X, Loader2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { supabase } from '../services/auth';
 
 export const Footer: React.FC = () => {
   const [activeModal, setActiveModal] = useState<'feedback' | 'issue' | 'privacy' | 'terms' | null>(null);
@@ -93,34 +94,70 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
   const [stepsToReproduce, setStepsToReproduce] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
 
+    setErrorMessage(null);
     setIsSubmitting(true);
-    try {
-      const res = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: type === 'feedback' ? 'feedback' : 'issue',
-          category: type === 'feedback' ? feedbackCategory : issueCategory,
-          name: senderName,
-          email: senderEmail,
-          message: message.trim(),
-          stepsToReproduce: stepsToReproduce.trim(),
-        }),
-      });
 
-      if (res.ok) {
-        setIsSuccess(true);
-      } else {
-        // Safe fallback success for offline/demo
-        setIsSuccess(true);
+    try {
+      const isValidUuid = (str?: string) => Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+      const cleanUserId = isValidUuid(authUser?.id) ? authUser?.id : null;
+      const cleanType = type === 'feedback' ? 'feedback' : 'issue';
+      const cleanCategory = type === 'feedback' ? feedbackCategory : issueCategory;
+
+      let savedDirectly = false;
+
+      // 1. Try direct Supabase SDK insert if client is active
+      if (supabase) {
+        const { error: dbError } = await supabase.from('feedback_reports').insert({
+          user_id: cleanUserId,
+          type: cleanType,
+          category: cleanCategory,
+          user_name: senderName.trim() || null,
+          user_email: senderEmail.trim() || null,
+          message: message.trim(),
+          steps_to_reproduce: cleanType === 'issue' && stepsToReproduce.trim() ? stepsToReproduce.trim() : null,
+        });
+
+        if (!dbError) {
+          savedDirectly = true;
+        } else {
+          console.warn('[Footer direct Supabase insert warning]:', dbError.message);
+        }
       }
-    } catch {
+
+      // 2. Fallback to API serverless endpoint if not saved directly
+      if (!savedDirectly) {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: authUser?.id,
+            type: cleanType,
+            category: cleanCategory,
+            name: senderName.trim(),
+            email: senderEmail.trim(),
+            message: message.trim(),
+            stepsToReproduce: stepsToReproduce.trim(),
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to submit form. Please check your connection and try again.');
+        }
+      }
+
       setIsSuccess(true);
+      setMessage('');
+      setStepsToReproduce('');
+    } catch (err: any) {
+      console.error('[Feedback Submission Error]:', err);
+      setErrorMessage(err.message || 'Something went wrong submitting your form. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -178,6 +215,12 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
+                {errorMessage && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span>{errorMessage}</span>
+                  </div>
+                )}
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Have ideas to make daily studying simpler? Tell us what you like or what features you’d love to see.
                 </p>
@@ -292,6 +335,12 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
+                {errorMessage && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span>{errorMessage}</span>
+                  </div>
+                )}
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Encountered a glitch, syllabus error, or timer issue? Let us know so we can fix it.
                 </p>
