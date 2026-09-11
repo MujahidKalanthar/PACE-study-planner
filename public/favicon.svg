@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="pace_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+    <linearGradient id="sparkle_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#818CF8" />
+    </linearGradient>
+  </defs>
+  <!-- Background Card -->
+  <rect width="512" height="512" rx="128" fill="url(#pace_grad)" />
+  <!-- Academic Cap -->
+  <path d="M256 130 L400 200 L256 270 L112 200 Z" fill="#FFFFFF" fill-opacity="0.95" />
+  <path d="M168 235 V310 C168 340 204 365 256 365 C308 365 344 340 344 310 V235 L256 278 Z" fill="#FFFFFF" fill-opacity="0.8" />
+  <!-- Tassel -->
+  <circle cx="400" cy="200" r="14" fill="#F43F5E" />
+  <path d="M400 214 V300 L388 315" stroke="#F43F5E" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Compass/Sparkle Accent -->
+  <path d="M370 100 L377 114 L391 121 L377 128 L370 142 L363 128 L349 121 L363 114 Z" fill="url(#sparkle_grad)" />
+</svg>

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { MessageSquare, AlertCircle, ShieldCheck, FileText, Heart, Sparkles, Check, X, Loader2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { supabase } from '../services/auth';
 
 export const Footer: React.FC = () => {
   const [activeModal, setActiveModal] = useState<'feedback' | 'issue' | 'privacy' | 'terms' | null>(null);
@@ -86,78 +85,56 @@ interface FooterModalProps {
 const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
   const { authUser, profile } = useApp();
 
-  const [feedbackCategory, setFeedbackCategory] = useState<'general' | 'suggestion' | 'feature'>('suggestion');
-  const [issueCategory, setIssueCategory] = useState<'bug' | 'content' | 'ui' | 'other'>('bug');
+  const [feedbackCategory, setFeedbackCategory] = useState<string>('Feature suggestion');
+  const [issueCategory, setIssueCategory] = useState<string>('Bug / Crash');
   const [senderName, setSenderName] = useState(authUser?.name || profile.name || '');
   const [senderEmail, setSenderEmail] = useState(authUser?.email || '');
+  const [currentPage, setCurrentPage] = useState<string>(
+    typeof window !== 'undefined' ? `${window.location.pathname}${window.location.hash || ''}` : 'Dashboard'
+  );
   const [message, setMessage] = useState('');
   const [stepsToReproduce, setStepsToReproduce] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
 
-    setErrorMessage(null);
     setIsSubmitting(true);
+    setErrorMsg(null);
 
     try {
-      const isValidUuid = (str?: string) => Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
-      const cleanUserId = isValidUuid(authUser?.id) ? authUser?.id : null;
-      const cleanType = type === 'feedback' ? 'feedback' : 'issue';
-      const cleanCategory = type === 'feedback' ? feedbackCategory : issueCategory;
-
-      let savedDirectly = false;
-
-      // 1. Try direct Supabase SDK insert if client is active
-      if (supabase) {
-        const { error: dbError } = await supabase.from('feedback_reports').insert({
-          user_id: cleanUserId,
-          type: cleanType,
-          category: cleanCategory,
-          user_name: senderName.trim() || null,
-          user_email: senderEmail.trim() || null,
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: type === 'feedback' ? 'feedback' : 'issue',
+          category: type === 'feedback' ? feedbackCategory : issueCategory,
+          name: senderName.trim(),
+          email: senderEmail.trim(),
           message: message.trim(),
-          steps_to_reproduce: cleanType === 'issue' && stepsToReproduce.trim() ? stepsToReproduce.trim() : null,
-        });
+          stepsToReproduce: stepsToReproduce.trim(),
+          currentPage: currentPage.trim(),
+          userId: authUser?.id || null,
+          metadata: {
+            timestamp: new Date().toISOString(),
+            userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
+            appVersion: '1.0.0'
+          }
+        }),
+      });
 
-        if (!dbError) {
-          savedDirectly = true;
-        } else {
-          console.warn('[Footer direct Supabase insert warning]:', dbError.message);
-        }
+      const resData = await res.json().catch(() => ({}));
+
+      if (res.ok && resData.success !== false) {
+        setIsSuccess(true);
+      } else {
+        setErrorMsg(resData.error || 'Failed to send submission. Please try again.');
       }
-
-      // 2. Fallback to API serverless endpoint if not saved directly
-      if (!savedDirectly) {
-        const res = await fetch('/api/feedback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: authUser?.id,
-            type: cleanType,
-            category: cleanCategory,
-            name: senderName.trim(),
-            email: senderEmail.trim(),
-            message: message.trim(),
-            stepsToReproduce: stepsToReproduce.trim(),
-          }),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || 'Failed to submit form. Please check your connection and try again.');
-        }
-      }
-
-      setIsSuccess(true);
-      setMessage('');
-      setStepsToReproduce('');
     } catch (err: any) {
-      console.error('[Feedback Submission Error]:', err);
-      setErrorMessage(err.message || 'Something went wrong submitting your form. Please try again.');
+      setErrorMsg('Network error. Unable to contact submission server.');
     } finally {
       setIsSubmitting(false);
     }
@@ -193,6 +170,13 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto pr-1">
+          {errorMsg && (
+            <div className="mb-4 p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded-xl text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           {/* 1. FEEDBACK FORM */}
           {type === 'feedback' && (
             isSuccess ? (
@@ -204,7 +188,7 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
                   Thank you for your feedback!
                 </h4>
                 <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
-                  Your input directly shapes PACE into a better, calmer study planner for students everywhere.
+                  Your feedback has been delivered to our support team and recorded.
                 </p>
                 <button
                   onClick={onClose}
@@ -215,35 +199,30 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
-                {errorMessage && (
-                  <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    <span>{errorMessage}</span>
-                  </div>
-                )}
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Have ideas to make daily studying simpler? Tell us what you like or what features you’d love to see.
+                  Have ideas to make daily studying simpler? Select a category and share your thoughts.
                 </p>
 
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Category</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     {[
-                      { id: 'suggestion', label: 'Suggestion' },
-                      { id: 'feature', label: 'Feature Request' },
-                      { id: 'general', label: 'General' },
+                      'General feedback',
+                      'Feature suggestion',
+                      "Something isn't working",
+                      'Other'
                     ].map((cat) => (
                       <button
-                        key={cat.id}
+                        key={cat}
                         type="button"
-                        onClick={() => setFeedbackCategory(cat.id as any)}
-                        className={`py-2 rounded-xl text-xs font-medium border transition-all ${
-                          feedbackCategory === cat.id
+                        onClick={() => setFeedbackCategory(cat)}
+                        className={`py-2 px-1 rounded-xl text-[11px] font-medium border text-center transition-all ${
+                          feedbackCategory === cat
                             ? 'border-[#4F46E5] bg-indigo-50/70 dark:bg-indigo-950/50 text-[#4F46E5] dark:text-indigo-300 font-semibold'
                             : 'border-[#E5E5E1] dark:border-[#2E3036] text-gray-600 dark:text-gray-400'
                         }`}
                       >
-                        {cat.label}
+                        {cat}
                       </button>
                     ))}
                   </div>
@@ -256,7 +235,7 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
                       type="text"
                       value={senderName}
                       onChange={(e) => setSenderName(e.target.value)}
-                      placeholder="e.g. Arjun"
+                      placeholder="Your name"
                       className="w-full px-3 py-2 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white"
                     />
                   </div>
@@ -324,7 +303,7 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
                   Issue report received
                 </h4>
                 <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
-                  We'll investigate and fix this promptly. Thank you for helping keep PACE reliable for everyone.
+                  Your issue report has been delivered to support and recorded. We will review it shortly.
                 </p>
                 <button
                   onClick={onClose}
@@ -335,36 +314,31 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
-                {errorMessage && (
-                  <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    <span>{errorMessage}</span>
-                  </div>
-                )}
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Encountered a glitch, syllabus error, or timer issue? Let us know so we can fix it.
                 </p>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Problem Area</label>
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Issue Type</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
                     {[
-                      { id: 'bug', label: 'Bug / Crash' },
-                      { id: 'content', label: 'Syllabus Error' },
-                      { id: 'ui', label: 'UI Glitch' },
-                      { id: 'other', label: 'Other' },
+                      'Bug / Crash',
+                      'Syllabus Error',
+                      'UI Glitch',
+                      'Performance',
+                      'Other'
                     ].map((cat) => (
                       <button
-                        key={cat.id}
+                        key={cat}
                         type="button"
-                        onClick={() => setIssueCategory(cat.id as any)}
-                        className={`py-2 rounded-xl text-xs font-medium border text-center transition-all ${
-                          issueCategory === cat.id
+                        onClick={() => setIssueCategory(cat)}
+                        className={`py-2 px-1 rounded-xl text-[11px] font-medium border text-center transition-all ${
+                          issueCategory === cat
                             ? 'border-rose-500 bg-rose-50/70 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 font-semibold'
                             : 'border-[#E5E5E1] dark:border-[#2E3036] text-gray-600 dark:text-gray-400'
                         }`}
                       >
-                        {cat.label}
+                        {cat}
                       </button>
                     ))}
                   </div>
@@ -372,7 +346,7 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
 
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                    What happened? *
+                    Description *
                   </label>
                   <textarea
                     required
@@ -384,6 +358,29 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
                   />
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-gray-700 dark:text-gray-300">Page / Feature where issue occurred</label>
+                    <input
+                      type="text"
+                      value={currentPage}
+                      onChange={(e) => setCurrentPage(e.target.value)}
+                      placeholder="e.g. Import -> Starter Syllabi"
+                      className="w-full px-3 py-2 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-gray-700 dark:text-gray-300">Contact Email (optional)</label>
+                    <input
+                      type="email"
+                      value={senderEmail}
+                      onChange={(e) => setSenderEmail(e.target.value)}
+                      placeholder="student@example.com"
+                      className="w-full px-3 py-2 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs"
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                     Steps to reproduce (optional)
@@ -393,17 +390,6 @@ const FooterModal: React.FC<FooterModalProps> = ({ type, onClose }) => {
                     value={stepsToReproduce}
                     onChange={(e) => setStepsToReproduce(e.target.value)}
                     placeholder="e.g. Opened Focus mode -> Clicked +5m -> Timer paused"
-                    className="w-full px-3 py-2 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Your Email (for updates)</label>
-                  <input
-                    type="email"
-                    value={senderEmail}
-                    onChange={(e) => setSenderEmail(e.target.value)}
-                    placeholder="student@example.com"
                     className="w-full px-3 py-2 rounded-xl border border-[#E5E5E1] dark:border-[#2E3036] bg-white dark:bg-[#141518] text-[#111827] dark:text-white text-xs"
                   />
                 </div>

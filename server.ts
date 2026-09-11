@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { z } from 'zod';
+import { processFeedbackSubmission } from './api/feedback';
 
 dotenv.config();
 
@@ -401,52 +402,11 @@ Generate ONE concise, warm, practical insight (1 to 2 sentences max).`;
 // In-App Feedback & Issue Reporting Endpoint
 app.post('/api/feedback', async (req: Request, res: Response) => {
   try {
-    const { userId, type, category, name, email, message, stepsToReproduce } = req.body;
-
-    if (!message || !message.trim()) {
-      res.status(400).json({ error: 'Message is required.' });
-      return;
-    }
-
-    const cleanType = type === 'issue' ? 'issue' : 'feedback';
-    const cleanCategory = category || (cleanType === 'issue' ? 'bug' : 'suggestion');
-    const isUuid = (str?: string) => Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
-    const cleanUserId = isUuid(userId) ? userId : null;
-
-    console.log(`[PACE Feedback Received] Type: ${cleanType}, Category: ${cleanCategory}, UserID: ${cleanUserId || 'Anonymous'}, From: ${name || 'Anonymous'} (${email || 'No email'}), Message: ${message}`);
-
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
-
-    if (supabaseUrl && supabaseKey) {
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(supabaseUrl, supabaseKey);
-
-      const { error: dbError } = await supabase.from('feedback_reports').insert({
-        user_id: cleanUserId,
-        type: cleanType,
-        category: cleanCategory,
-        user_name: name ? name.trim() : null,
-        user_email: email ? email.trim() : null,
-        message: message.trim(),
-        steps_to_reproduce: stepsToReproduce ? stepsToReproduce.trim() : null,
-      });
-
-      if (dbError) {
-        console.error('[Feedback Server] Supabase insert error:', dbError);
-        res.status(500).json({ error: 'Failed to record submission in database: ' + dbError.message });
-        return;
-      }
-    }
-
-    res.json({
-      success: true,
-      message: cleanType === 'issue' ? "Thanks! We've received your report." : "Thanks! Your feedback has been submitted.",
-      receivedAt: new Date().toISOString(),
-    });
+    const result = await processFeedbackSubmission(req.body);
+    res.status(result.status).json(result.json);
   } catch (error: any) {
     console.error('Feedback submission error:', error);
-    res.status(500).json({ error: error.message || 'Failed to process feedback.' });
+    res.status(500).json({ error: 'Failed to process feedback.' });
   }
 });
 
