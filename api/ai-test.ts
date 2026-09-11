@@ -66,30 +66,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
   }
 
-  // Test 2: Gemini Minimal Call
+  // Test 2: Gemini Minimal Call (gemini-3.6-flash)
   if (process.env.GEMINI_API_KEY) {
     const geminiStartTime = Date.now();
     try {
-      console.log('[AI-TEST] Calling Gemini API directly with minimal prompt...');
+      console.log('[AI-TEST] Calling Gemini API directly (model: gemini-3.6-flash)...');
       const ai = new GoogleGenAI({
         apiKey: process.env.GEMINI_API_KEY,
         httpOptions: { headers: { 'User-Agent': 'pace-study-planner' } },
       });
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: 'Reply with exactly: AI_TEST_OK',
+        model: 'gemini-3.6-flash',
+        contents: 'Reply with exactly: GEMINI_TEST_OK',
       });
 
       const latencyMs = Date.now() - geminiStartTime;
       diagnostics.tests.gemini = {
         status: 'SUCCESS',
+        model: 'gemini-3.6-flash',
         latencyMs,
         response: response.text?.trim(),
       };
     } catch (err: any) {
       diagnostics.tests.gemini = {
         status: 'API_ERROR',
+        model: 'gemini-3.6-flash',
         error: err.message,
       };
     }

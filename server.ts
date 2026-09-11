@@ -199,9 +199,9 @@ Respond ONLY with valid JSON strictly matching this schema:
 
     const gemini = getGeminiClient();
     if (gemini) {
-      console.log('[AI Parser] Calling Gemini gemini-2.5-flash with extracted text...');
+      console.log('[AI Parser] Calling Gemini gemini-3.6-flash with extracted text...');
       const response = await gemini.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: `${promptInstructions}\n\nUSER PROVIDED SYLLABUS CONTENT:\n"""\n${extractedText}\n"""`,
         config: {
           responseMimeType: 'application/json',
@@ -222,7 +222,7 @@ Respond ONLY with valid JSON strictly matching this schema:
       console.log(`[AI Parser] Calling Gemini multimodal with ${cleanMime}...`);
 
       const response = await gemini.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: {
           parts: [
             {
@@ -267,7 +267,7 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     aiConfigured: hasGroq || hasGemini,
-    primaryProvider: hasGroq ? 'groq (llama-3.3-70b-versatile)' : hasGemini ? 'gemini (gemini-2.5-flash)' : 'none',
+    primaryProvider: hasGroq ? 'groq (llama-3.3-70b-versatile)' : hasGemini ? 'gemini (gemini-3.6-flash)' : 'none',
     timestamp: new Date().toISOString(),
   });
 });
@@ -309,7 +309,7 @@ app.get('/api/ai-test', async (req: Request, res: Response) => {
       const gemini = getGeminiClient();
       if (gemini) {
         const resp = await gemini.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.6-flash',
           contents: 'Reply with exactly: AI_TEST_OK',
         });
         diagnostics.tests.gemini = {
@@ -381,7 +381,7 @@ Generate ONE concise, warm, practical insight (1 to 2 sentences max).`;
     const gemini = getGeminiClient();
     if (gemini) {
       const response = await gemini.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: prompt,
       });
       res.json({ insight: response.text?.trim() || "You're building solid daily momentum. Keep taking it one study session at a time." });

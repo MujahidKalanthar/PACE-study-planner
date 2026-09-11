@@ -74,7 +74,7 @@ Generate ONE concise, warm, practical insight (1 to 2 sentences max).`;
     const gemini = getGeminiClient();
     if (gemini) {
       const response = await gemini.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: prompt,
       });
       return res.status(200).json({

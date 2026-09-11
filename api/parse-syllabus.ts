@@ -20,6 +20,14 @@ const SyllabusSchema = z.object({
 
 export type ParsedSyllabus = z.infer<typeof SyllabusSchema>;
 
+function cleanJsonText(raw: string): string {
+  let cleaned = (raw || '').trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?[\r\n]+/, '').replace(/[\r\n]+```$/, '').trim();
+  }
+  return cleaned;
+}
+
 async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
   try {
     const { PDFParse } = await import('pdf-parse');
@@ -60,7 +68,7 @@ async function callGroqChat(messages: Array<{ role: string; content: string }>):
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY is not configured in server environment');
 
-  console.log('[AI-DEBUG] Sending request to Groq API (model: llama-3.3-70b-versatile)...');
+  console.log('[AI-DEBUG] AI provider: Groq | AI model: llama-3.3-70b-versatile');
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -91,7 +99,7 @@ async function callGemini(promptInstructions: string, userContent: string, fileD
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured in server environment');
 
-  console.log('[AI-DEBUG] Sending request to Google Gemini API (model: gemini-2.5-flash)...');
+  console.log('[AI-DEBUG] AI provider: Gemini | AI model: gemini-3.6-flash');
   const ai = new GoogleGenAI({
     apiKey,
     httpOptions: {
@@ -104,7 +112,7 @@ async function callGemini(promptInstructions: string, userContent: string, fileD
   if (fileData) {
     const cleanMime = mimeType || (fileData.startsWith('JVBER') ? 'application/pdf' : 'image/png');
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       contents: {
         parts: [
           {
@@ -122,17 +130,17 @@ async function callGemini(promptInstructions: string, userContent: string, fileD
         responseMimeType: 'application/json',
       },
     });
-    return response.text || '{}';
+    return cleanJsonText(response.text || '{}');
   }
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.6-flash',
     contents: `${promptInstructions}\n\nUSER PROVIDED SYLLABUS CONTENT:\n"""\n${userContent}\n"""`,
     config: {
       responseMimeType: 'application/json',
     },
   });
-  return response.text || '{}';
+  return cleanJsonText(response.text || '{}');
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -227,7 +235,7 @@ Respond ONLY with valid JSON strictly matching this schema:
 
     let parsedResult: any = null;
 
-    // Strategy 1: Groq (llama-3.3-70b-versatile)
+    // Strategy 1: Groq (if GROQ_API_KEY is available and text is present)
     if (process.env.GROQ_API_KEY && extractedText.length > 10) {
       try {
         console.log('[AI-DEBUG] Attempting extraction via Groq...');
@@ -242,7 +250,7 @@ Respond ONLY with valid JSON strictly matching this schema:
           },
         ]);
 
-        const jsonCandidate = JSON.parse(rawJson);
+        const jsonCandidate = JSON.parse(cleanJsonText(rawJson));
         parsedResult = SyllabusSchema.parse(jsonCandidate);
         console.log(`[AI-DEBUG] Groq extraction succeeded: ${parsedResult.subjects.length} subjects found.`);
       } catch (groqErr: any) {
@@ -253,18 +261,18 @@ Respond ONLY with valid JSON strictly matching this schema:
       }
     }
 
-    // Strategy 2: Google Gemini Fallback or Image parsing
+    // Strategy 2: Google Gemini (gemini-3.6-flash)
     if (!parsedResult && process.env.GEMINI_API_KEY) {
-      console.log('[AI-DEBUG] Attempting extraction via Google Gemini...');
+      console.log('[AI-DEBUG] Attempting extraction via Google Gemini (gemini-3.6-flash)...');
       const rawJson = await callGemini(promptInstructions, extractedText, fileData, mimeType);
-      const jsonCandidate = JSON.parse(rawJson);
+      const jsonCandidate = JSON.parse(cleanJsonText(rawJson));
       parsedResult = SyllabusSchema.parse(jsonCandidate);
       console.log(`[AI-DEBUG] Gemini extraction succeeded: ${parsedResult.subjects.length} subjects found.`);
     }
 
     if (!parsedResult) {
       if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
-        throw new Error('No AI API keys configured. Please add GROQ_API_KEY or GEMINI_API_KEY in Vercel environment variables.');
+        throw new Error('No AI API keys configured. Please set GEMINI_API_KEY or GROQ_API_KEY in Vercel environment variables.');
       }
       throw new Error('Unable to extract syllabus from the provided input.');
     }

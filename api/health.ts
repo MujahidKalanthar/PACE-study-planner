@@ -15,7 +15,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   return res.status(200).json({
     status: 'ok',
     aiConfigured: hasGroq || hasGemini,
-    primaryProvider: hasGroq ? 'groq (llama-3.3-70b-versatile)' : hasGemini ? 'gemini (gemini-2.5-flash)' : 'none',
+    primaryProvider: hasGroq ? 'groq (llama-3.3-70b-versatile)' : hasGemini ? 'gemini (gemini-3.6-flash)' : 'none',
     timestamp: new Date().toISOString(),
   });
 }
