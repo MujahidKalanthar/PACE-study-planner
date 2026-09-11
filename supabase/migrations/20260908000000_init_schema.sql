@@ -267,25 +267,15 @@ ALTER TABLE public.feedback_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.syllabus_documents ENABLE ROW LEVEL SECURITY;
 
 -- 1. Profiles: User can view and update own profile.
--- Friends can only view public fields (name, streak_days, weekly_study_minutes, avatar_url) of each other.
-CREATE POLICY "Users can view own profile"
+-- Authenticated users can search student profiles for study circle discovery.
+CREATE POLICY "Authenticated users can search student profiles"
   ON public.profiles FOR SELECT
-  USING (auth.uid() = id);
+  TO authenticated
+  USING (true);
 
 CREATE POLICY "Users can update own profile"
   ON public.profiles FOR UPDATE
   USING (auth.uid() = id);
-
-CREATE POLICY "Friends can view limited friend profile stats"
-  ON public.profiles FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.friendships
-      WHERE (friendships.user_id = auth.uid() AND friendships.friend_id = profiles.id)
-         OR (friendships.friend_id = auth.uid() AND friendships.user_id = profiles.id)
-    )
-    AND show_stats_to_friends = true
-  );
 
 -- 2. Exams: strictly private
 CREATE POLICY "Users can manage own exams"

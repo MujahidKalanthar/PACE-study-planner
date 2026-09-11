@@ -92,6 +92,7 @@ export interface AuthUser {
   name: string;
   avatar?: string;
   createdAt?: string;
+  emailConfirmed?: boolean;
 }
 
 export interface StudentProfile {

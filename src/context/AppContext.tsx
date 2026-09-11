@@ -35,8 +35,35 @@ import {
   signInWithEmail,
   signUpWithEmail,
   signOutUser,
+  resendVerificationEmail,
   supabase,
 } from '../services/auth';
+import {
+  loadUserDataFromSupabase,
+  syncProfileToDb,
+  syncExamToDb,
+  deleteExamFromDb,
+  syncSubjectToDb,
+  deleteSubjectFromDb,
+  syncChapterToDb,
+  deleteChapterFromDb,
+  syncSubtopicToDb,
+  deleteSubtopicFromDb,
+  syncTasksToDb,
+  deleteTaskFromDb,
+  syncStudySessionToDb,
+  syncTimetableSlotToDb,
+  deleteTimetableSlotFromDb,
+  syncNotificationToDb,
+} from '../services/dbSync';
+import {
+  fetchRealFriends,
+  fetchIncomingFriendRequests,
+  sendRealFriendRequest,
+  acceptRealFriendRequest,
+  declineRealFriendRequest,
+  removeRealFriend,
+} from '../services/friends';
 
 function normalizeSubtopics(chId: string, subtopics: any[]): Subtopic[] {
   if (!Array.isArray(subtopics)) return [];
@@ -151,10 +178,10 @@ interface AppContextType {
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
 
   // Social Operations
-  sendFriendRequest: (searchQuery: string) => { success: boolean; message: string };
-  acceptFriendRequest: (requestId: string) => void;
-  declineFriendRequest: (requestId: string) => void;
-  removeFriend: (friendId: string) => void;
+  sendFriendRequest: (searchQuery: string) => Promise<{ success: boolean; message: string }>;
+  acceptFriendRequest: (requestId: string) => Promise<void>;
+  declineFriendRequest: (requestId: string) => Promise<void>;
+  removeFriend: (friendId: string) => Promise<void>;
   nudgeFriend: (friendId: string) => void;
 
   // Notification Operations
@@ -165,8 +192,9 @@ interface AppContextType {
   // Auth Operations
   authUser: AuthUser | null;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
-  signUp: (name: string, email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (name: string, email: string, password: string) => Promise<{ error?: string; unconfirmed?: boolean }>;
   signOut: () => Promise<void>;
+  resendVerification: (email: string) => Promise<{ success: boolean; error?: string }>;
 
   // Onboarding & Helpers
   completeOnboarding: (params: {
@@ -242,6 +270,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Student',
             avatar: session.user.user_metadata?.avatar_url,
             createdAt: session.user.created_at,
+            emailConfirmed: Boolean(session.user.email_confirmed_at || session.user.confirmed_at),
           };
           setAuthUser(user);
           updateProfile({ name: user.name, email: user.email });
@@ -255,6 +284,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
   }, []);
+
+  // Fetch real data from Supabase when user is authenticated
+  useEffect(() => {
+    if (authUser?.id) {
+      loadUserDataFromSupabase(authUser.id).then((loaded) => {
+        if (loaded) {
+          setData((prev: any) => {
+            const hasRemoteData =
+              loaded.exams.length > 0 ||
+              loaded.subjects.length > 0 ||
+              loaded.sessionLogs.length > 0 ||
+              loaded.plans.length > 0;
+
+            if (hasRemoteData) {
+              return {
+                ...prev,
+                exams: loaded.exams.length > 0 ? loaded.exams : prev.exams,
+                subjects: loaded.subjects.length > 0 ? loaded.subjects : prev.subjects,
+                chapters: loaded.chapters.length > 0 ? loaded.chapters : prev.chapters,
+                plans: loaded.plans.length > 0 ? loaded.plans : prev.plans,
+                sessionLogs: loaded.sessionLogs.length > 0 ? loaded.sessionLogs : prev.sessionLogs,
+                timetable: loaded.timetable.length > 0 ? loaded.timetable : prev.timetable,
+                notifications: loaded.notifications.length > 0 ? loaded.notifications : prev.notifications,
+                profile: loaded.profile ? { ...prev.profile, ...loaded.profile } : prev.profile,
+              };
+            }
+            return prev;
+          });
+        }
+      });
+
+      // Load friends & friend requests from Supabase
+      fetchRealFriends(authUser.id).then((f) => {
+        if (f.length > 0) {
+          setData((prev: any) => ({ ...prev, friends: f }));
+        }
+      });
+      fetchIncomingFriendRequests(authUser.id).then((r) => {
+        if (r.length > 0) {
+          setData((prev: any) => ({ ...prev, friendRequests: r }));
+        }
+      });
+    }
+  }, [authUser?.id]);
 
   // Sync state to localStorage
   useEffect(() => {
@@ -344,6 +417,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Exam configuration
   const setExam = (examData: { name: string; targetDate: string; color?: string } | null) => {
     if (!examData) {
+      if (authUser?.id && data.exams?.[0]?.id) {
+        deleteExamFromDb(authUser.id, data.exams[0].id);
+      }
       setData((prev: any) => ({ ...prev, exams: [] }));
       return;
     }
@@ -372,6 +448,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       exams: [newExam],
       plans: newPlans,
     }));
+
+    if (authUser?.id) {
+      syncExamToDb(authUser.id, newExam);
+      syncTasksToDb(authUser.id, newPlans);
+    }
   };
 
   // Study Session Controls
@@ -469,9 +550,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return p;
     });
 
+    let updatedChapterObj: Chapter | null = null;
     const updatedChapters = (data.chapters || []).map((c: Chapter) => {
       if (c.id === chapter.id) {
-        return {
+        updatedChapterObj = {
           ...c,
           subtopics: updatedSubtopics,
           status: newStatus,
@@ -480,6 +562,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           nextRevisionDate: newNextRevisionDate,
           revisionCount: newRevisionCount,
         };
+        return updatedChapterObj;
       }
       return c;
     });
@@ -503,6 +586,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sessionLogs: [...(prev.sessionLogs || []), newLog],
     }));
 
+    if (authUser?.id) {
+      syncStudySessionToDb(authUser.id, newLog);
+      if (updatedChapterObj) {
+        syncChapterToDb(authUser.id, updatedChapterObj);
+      }
+      syncTasksToDb(authUser.id, recomputedPlans);
+      syncProfileToDb(authUser.id, data.profile, userStats);
+    }
+
     setActiveStudySession(null);
   };
 
@@ -521,6 +613,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     let updatedChapters = data.chapters || [];
+    let updatedTargetChapter: Chapter | null = null;
     if (targetChapter && newCompleted && item.type === 'learn') {
       updatedChapters = (data.chapters || []).map((c: Chapter) => {
         if (c.id === targetChapter.id) {
@@ -531,7 +624,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             );
           }
           const allDone = updatedSubs.length > 0 && updatedSubs.every((st) => st.completed);
-          return {
+          updatedTargetChapter = {
             ...c,
             subtopics: updatedSubs,
             status: allDone || !item.subtopicId ? 'completed' : c.status,
@@ -539,6 +632,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             nextRevisionDate: addDays(todayStr, 3),
             revisionCount: (c.revisionCount || 0) + 1,
           };
+          return updatedTargetChapter;
         }
         return c;
       });
@@ -549,6 +643,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       plans: updatedPlans,
       chapters: updatedChapters,
     }));
+
+    if (authUser?.id) {
+      syncTasksToDb(authUser.id, updatedPlans);
+      if (updatedTargetChapter) {
+        syncChapterToDb(authUser.id, updatedTargetChapter);
+      }
+    }
   };
 
   const rescheduleItem = (itemId: string, targetDate: string) => {
@@ -563,6 +664,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       plans: updatedPlans,
     }));
+
+    if (authUser?.id) {
+      syncTasksToDb(authUser.id, updatedPlans);
+    }
   };
 
   const handleMissedStudyAction = (action: 'keep' | 'adjust') => {
@@ -585,6 +690,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev,
         plans: redistributed,
       }));
+
+      if (authUser?.id) {
+        syncTasksToDb(authUser.id, redistributed);
+      }
     }
   };
 
@@ -602,13 +711,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       subjects: [...(prev.subjects || []), newSub],
     }));
+
+    if (authUser?.id) {
+      syncSubjectToDb(authUser.id, newSub);
+    }
   };
 
   const updateSubject = (subjectId: string, updates: Partial<Subject>) => {
+    let updatedSubObj: Subject | null = null;
     setData((prev: any) => ({
       ...prev,
-      subjects: (prev.subjects || []).map((s: Subject) => (s.id === subjectId ? { ...s, ...updates } : s)),
+      subjects: (prev.subjects || []).map((s: Subject) => {
+        if (s.id === subjectId) {
+          updatedSubObj = { ...s, ...updates };
+          return updatedSubObj;
+        }
+        return s;
+      }),
     }));
+
+    if (authUser?.id && updatedSubObj) {
+      syncSubjectToDb(authUser.id, updatedSubObj);
+    }
   };
 
   const deleteSubject = (subjectId: string) => {
@@ -618,6 +742,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       chapters: (prev.chapters || []).filter((c: Chapter) => c.subjectId !== subjectId),
       plans: (prev.plans || []).filter((p: PlannedStudyItem) => p.subjectId !== subjectId),
     }));
+
+    if (authUser?.id) {
+      deleteSubjectFromDb(authUser.id, subjectId);
+    }
   };
 
   // Chapter & Subtopic CRUD
@@ -660,15 +788,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       chapters: newChapters,
       plans: newPlans,
     }));
+
+    if (authUser?.id) {
+      syncChapterToDb(authUser.id, newChapter);
+      syncTasksToDb(authUser.id, newPlans);
+    }
   };
 
   const updateChapter = (chapterId: string, updates: Partial<Chapter>) => {
+    let updatedChObj: Chapter | null = null;
     const newChapters = (data.chapters || []).map((c: Chapter) => {
       if (c.id === chapterId) {
         const updated = { ...c, ...updates };
         if (updates.subtopics) {
           updated.subtopics = normalizeSubtopics(chapterId, updates.subtopics);
         }
+        updatedChObj = updated;
         return updated;
       }
       return c;
@@ -678,6 +813,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       chapters: newChapters,
     }));
+
+    if (authUser?.id && updatedChObj) {
+      syncChapterToDb(authUser.id, updatedChObj);
+    }
   };
 
   const deleteChapter = (chapterId: string) => {
@@ -689,6 +828,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       chapters: newChapters,
       plans: newPlans,
     }));
+
+    if (authUser?.id) {
+      deleteChapterFromDb(authUser.id, chapterId);
+    }
   };
 
   const addSubtopic = (chapterId: string, name: string, estimatedMinutes = 20) => {
@@ -718,16 +861,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       chapters: updatedChapters,
     }));
+
+    if (authUser?.id) {
+      syncSubtopicToDb(authUser.id, newSub);
+    }
   };
 
   const updateSubtopic = (chapterId: string, subtopicId: string, updates: Partial<Subtopic>) => {
+    let updatedSubObj: Subtopic | null = null;
     const updatedChapters = (data.chapters || []).map((c: Chapter) => {
       if (c.id === chapterId) {
         return {
           ...c,
-          subtopics: (c.subtopics || []).map((st) =>
-            st.id === subtopicId ? { ...st, ...updates } : st
-          ),
+          subtopics: (c.subtopics || []).map((st) => {
+            if (st.id === subtopicId) {
+              updatedSubObj = { ...st, ...updates };
+              return updatedSubObj;
+            }
+            return st;
+          }),
         };
       }
       return c;
@@ -737,6 +889,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       chapters: updatedChapters,
     }));
+
+    if (authUser?.id && updatedSubObj) {
+      syncSubtopicToDb(authUser.id, updatedSubObj);
+    }
   };
 
   const deleteSubtopic = (chapterId: string, subtopicId: string) => {
@@ -754,6 +910,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       chapters: updatedChapters,
     }));
+
+    if (authUser?.id) {
+      deleteSubtopicFromDb(authUser.id, subtopicId);
+    }
   };
 
   const toggleSubtopicComplete = (chapterId: string, subtopicId: string) => {
@@ -763,13 +923,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetSub = chapter.subtopics?.find((st) => st.id === subtopicId);
     const newCompleted = !targetSub?.completed;
 
+    let updatedSubObj: Subtopic | null = null;
     const updatedSubtopics = (chapter.subtopics || []).map((st) => {
       if (st.id === subtopicId) {
-        return {
+        updatedSubObj = {
           ...st,
           completed: newCompleted,
           completedDate: newCompleted ? todayStr : undefined,
         };
+        return updatedSubObj;
       }
       return st;
     });
@@ -777,14 +939,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const allCompleted = updatedSubtopics.every((st) => st.completed);
     const newStatus = allCompleted ? 'completed' : updatedSubtopics.some((st) => st.completed) ? 'in_progress' : chapter.status;
 
+    let updatedChapterObj: Chapter | null = null;
     const updatedChapters = (data.chapters || []).map((c: Chapter) => {
       if (c.id === chapterId) {
-        return {
+        updatedChapterObj = {
           ...c,
           subtopics: updatedSubtopics,
           status: newStatus,
           completedDate: allCompleted ? todayStr : c.completedDate,
         };
+        return updatedChapterObj;
       }
       return c;
     });
@@ -793,6 +957,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       chapters: updatedChapters,
     }));
+
+    if (authUser?.id) {
+      if (updatedSubObj) syncSubtopicToDb(authUser.id, updatedSubObj);
+      if (updatedChapterObj) syncChapterToDb(authUser.id, updatedChapterObj);
+    }
   };
 
   // Timetable CRUD
@@ -817,16 +986,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timetable: newTimetable,
       plans: newPlans,
     }));
+
+    if (authUser?.id) {
+      syncTimetableSlotToDb(authUser.id, newSlot);
+      syncTasksToDb(authUser.id, newPlans);
+    }
   };
 
   const updateTimetableSlot = (slotId: string, updates: Partial<TimetableSlot>) => {
-    const newTimetable = (data.timetable || []).map((t: TimetableSlot) =>
-      t.id === slotId ? { ...t, ...updates } : t
-    );
+    let updatedSlotObj: TimetableSlot | null = null;
+    const newTimetable = (data.timetable || []).map((t: TimetableSlot) => {
+      if (t.id === slotId) {
+        updatedSlotObj = { ...t, ...updates };
+        return updatedSlotObj;
+      }
+      return t;
+    });
+
     setData((prev: any) => ({
       ...prev,
       timetable: newTimetable,
     }));
+
+    if (authUser?.id && updatedSlotObj) {
+      syncTimetableSlotToDb(authUser.id, updatedSlotObj);
+    }
   };
 
   const deleteTimetableSlot = (slotId: string) => {
@@ -835,6 +1019,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       timetable: newTimetable,
     }));
+
+    if (authUser?.id) {
+      deleteTimetableSlotFromDb(authUser.id, slotId);
+    }
   };
 
   // Plan CRUD
@@ -843,10 +1031,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...item,
       id: `plan_custom_${Date.now()}`,
     };
+    const updatedPlans = [...(data.plans || []), newItem];
     setData((prev: any) => ({
       ...prev,
-      plans: [...(prev.plans || []), newItem],
+      plans: updatedPlans,
     }));
+
+    if (authUser?.id) {
+      syncTasksToDb(authUser.id, [newItem]);
+    }
   };
 
   const deletePlanItem = (itemId: string) => {
@@ -854,6 +1047,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       plans: (prev.plans || []).filter((p: PlannedStudyItem) => p.id !== itemId),
     }));
+
+    if (authUser?.id) {
+      deleteTaskFromDb(authUser.id, itemId);
+    }
   };
 
   const updateProfile = (updates: Partial<StudentProfile>) => {
@@ -875,6 +1072,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       profile: newProfile,
       plans: newPlans,
     }));
+
+    if (authUser?.id) {
+      syncProfileToDb(authUser.id, newProfile, userStats);
+    }
   };
 
   const setTheme = (theme: 'light' | 'dark' | 'system') => {
@@ -882,30 +1083,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Social (Friends)
-  const sendFriendRequest = (searchQuery: string): { success: boolean; message: string } => {
+  const sendFriendRequest = async (searchQuery: string): Promise<{ success: boolean; message: string }> => {
     if (!searchQuery.trim()) return { success: false, message: 'Please enter a name or email.' };
     return { success: false, message: 'Please search for registered classmates in Study Circle.' };
   };
 
-  const acceptFriendRequest = (requestId: string) => {
+  const acceptFriendRequest = async (requestId: string) => {
     const req = (data.friendRequests || []).find((r: FriendRequest) => r.id === requestId);
     if (!req) return;
 
-    const newFriend: Friend = {
-      id: `fr_${req.fromUserId}`,
-      name: req.fromUserName,
-      avatar: req.fromUserAvatar,
-      streakDays: 0,
-      weeklyStudyMinutes: 0,
-      showStats: true,
-      nudgedToday: false,
-    };
+    if (authUser?.id) {
+      await acceptRealFriendRequest(requestId, req.fromUserId, authUser.id, authUser.name);
+      const updatedFriends = await fetchRealFriends(authUser.id);
+      const updatedRequests = await fetchIncomingFriendRequests(authUser.id);
+      setData((prev: any) => ({
+        ...prev,
+        friends: updatedFriends,
+        friendRequests: updatedRequests,
+      }));
+    } else {
+      const newFriend: Friend = {
+        id: `fr_${req.fromUserId}`,
+        name: req.fromUserName,
+        avatar: req.fromUserAvatar,
+        streakDays: 0,
+        weeklyStudyMinutes: 0,
+        showStats: true,
+        nudgedToday: false,
+      };
 
-    setData((prev: any) => ({
-      ...prev,
-      friends: [...(prev.friends || []), newFriend],
-      friendRequests: (prev.friendRequests || []).filter((r: FriendRequest) => r.id !== requestId),
-    }));
+      setData((prev: any) => ({
+        ...prev,
+        friends: [...(prev.friends || []), newFriend],
+        friendRequests: (prev.friendRequests || []).filter((r: FriendRequest) => r.id !== requestId),
+      }));
+    }
 
     addNotification({
       type: 'friend_accepted',
@@ -915,14 +1127,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const declineFriendRequest = (requestId: string) => {
-    setData((prev: any) => ({
-      ...prev,
-      friendRequests: (prev.friendRequests || []).filter((r: FriendRequest) => r.id !== requestId),
-    }));
+  const declineFriendRequest = async (requestId: string) => {
+    if (authUser?.id) {
+      await declineRealFriendRequest(requestId, authUser.id);
+      const updatedRequests = await fetchIncomingFriendRequests(authUser.id);
+      setData((prev: any) => ({
+        ...prev,
+        friendRequests: updatedRequests,
+      }));
+    } else {
+      setData((prev: any) => ({
+        ...prev,
+        friendRequests: (prev.friendRequests || []).filter((r: FriendRequest) => r.id !== requestId),
+      }));
+    }
   };
 
-  const removeFriend = (friendId: string) => {
+  const removeFriend = async (friendId: string) => {
+    if (authUser?.id) {
+      await removeRealFriend(authUser.id, friendId);
+    }
     setData((prev: any) => ({
       ...prev,
       friends: (prev.friends || []).filter((f: Friend) => f.id !== friendId),
@@ -976,6 +1200,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       notifications: [newNotif, ...(prev.notifications || [])],
     }));
+
+    if (authUser?.id) {
+      syncNotificationToDb(authUser.id, newNotif);
+    }
   };
 
   const unreadNotificationsCount = (data.notifications || []).filter((n: AppNotification) => !n.read).length;
@@ -999,6 +1227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAuthUser(res.user);
       setShowAuthModal(false);
       updateProfile({ name: res.user.name, email: res.user.email });
+      return { unconfirmed: res.unconfirmed };
     }
     return {};
   };
@@ -1006,6 +1235,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const signOut = async () => {
     await signOutUser();
     setAuthUser(null);
+  };
+
+  const resendVerification = async (email: string) => {
+    return resendVerificationEmail(email);
   };
 
   // Import custom syllabus parsed by AI or manual input
@@ -1018,17 +1251,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     subjectsData.forEach((sub: any, sIdx: number) => {
       const subId = `sub_${Date.now()}_${sIdx}`;
-      newSubjects.push({
+      const newSub: Subject = {
         id: subId,
         name: sub.name || `Subject ${sIdx + 1}`,
         color: palette[sIdx % palette.length],
         order: (data.subjects || []).length + sIdx + 1,
-      });
+      };
+      newSubjects.push(newSub);
 
       if (Array.isArray(sub.chapters)) {
         sub.chapters.forEach((ch: any, cIdx: number) => {
           const chId = `ch_${Date.now()}_${sIdx}_${cIdx}`;
-          newChapters.push({
+          const newCh: Chapter = {
             id: chId,
             subjectId: subId,
             name: ch.name || 'Chapter',
@@ -1039,7 +1273,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             completedMinutes: 0,
             subtopics: normalizeSubtopics(chId, ch.subtopics || []),
             revisionCount: 0,
-          });
+          };
+          newChapters.push(newCh);
         });
       }
     });
@@ -1065,6 +1300,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       chapters: mergedChapters,
       plans: newPlans,
     }));
+
+    if (authUser?.id) {
+      newSubjects.forEach((s) => syncSubjectToDb(authUser.id, s));
+      newChapters.forEach((c) => syncChapterToDb(authUser.id, c));
+      syncTasksToDb(authUser.id, newPlans);
+    }
   };
 
   // Complete full onboarding flow
@@ -1112,6 +1353,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       exams: [newExam],
       plans: newPlans,
     }));
+
+    if (authUser?.id) {
+      syncProfileToDb(authUser.id, updatedProfile, userStats);
+      syncExamToDb(authUser.id, newExam);
+      syncTasksToDb(authUser.id, newPlans);
+    }
 
     setShowOnboarding(false);
     setActiveTab('home');
@@ -1189,6 +1436,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         signIn,
         signUp,
         signOut,
+        resendVerification,
         completeOnboarding,
         importCustomSyllabusData,
         handleMissedStudyAction,

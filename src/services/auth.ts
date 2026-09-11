@@ -27,6 +27,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
           name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Student',
           avatar: session.user.user_metadata?.avatar_url,
           createdAt: session.user.created_at,
+          emailConfirmed: Boolean(session.user.email_confirmed_at || session.user.confirmed_at),
         };
       }
     } catch (e) {
@@ -65,6 +66,7 @@ export async function signInWithEmail(email: string, password: string): Promise<
           email: data.user.email || email.trim(),
           name: data.user.user_metadata?.full_name || email.trim().split('@')[0],
           createdAt: data.user.created_at,
+          emailConfirmed: Boolean(data.user.email_confirmed_at || data.user.confirmed_at),
         };
         localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
         return { user };
@@ -85,12 +87,13 @@ export async function signInWithEmail(email: string, password: string): Promise<
     email: cleanEmail,
     name: cleanEmail.split('@')[0].replace('.', ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
     createdAt: new Date().toISOString(),
+    emailConfirmed: true,
   };
   localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
   return { user };
 }
 
-export async function signUpWithEmail(name: string, email: string, password: string): Promise<{ user: AuthUser | null; error?: string }> {
+export async function signUpWithEmail(name: string, email: string, password: string): Promise<{ user: AuthUser | null; error?: string; unconfirmed?: boolean }> {
   if (!name.trim()) return { user: null, error: 'Please enter your full name.' };
   if (!email || !password) return { user: null, error: 'Please provide email and password.' };
   if (password.length < 6) return { user: null, error: 'Password must be at least 6 characters.' };
@@ -105,18 +108,21 @@ export async function signUpWithEmail(name: string, email: string, password: str
         password,
         options: {
           data: { full_name: cleanName },
+          emailRedirectTo: window.location.origin,
         },
       });
       if (error) return { user: null, error: error.message };
       if (data.user) {
+        const isConfirmed = Boolean(data.user.email_confirmed_at || data.user.confirmed_at);
         const user: AuthUser = {
           id: data.user.id,
           email: data.user.email || cleanEmail,
           name: cleanName,
           createdAt: data.user.created_at,
+          emailConfirmed: isConfirmed,
         };
         localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
-        return { user };
+        return { user, unconfirmed: !isConfirmed };
       }
     } catch (err: any) {
       return { user: null, error: err.message || 'Sign up failed' };
@@ -128,9 +134,32 @@ export async function signUpWithEmail(name: string, email: string, password: str
     email: cleanEmail,
     name: cleanName,
     createdAt: new Date().toISOString(),
+    emailConfirmed: true,
   };
   localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(user));
   return { user };
+}
+
+export async function resendVerificationEmail(email: string): Promise<{ success: boolean; error?: string }> {
+  if (!email) return { success: false, error: 'Please provide your email address.' };
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to resend confirmation email.' };
+    }
+  }
+
+  return { success: true };
 }
 
 export async function resetPasswordForEmail(email: string): Promise<{ success: boolean; error?: string }> {
@@ -161,3 +190,4 @@ export async function signOutUser(): Promise<void> {
   }
   localStorage.removeItem(LOCAL_AUTH_KEY);
 }
+
