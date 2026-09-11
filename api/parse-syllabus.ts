@@ -18,16 +18,19 @@ const SyllabusSchema = z.object({
   subjects: z.array(SubjectSchema).min(1, 'At least one subject is required'),
 });
 
+export type ParsedSyllabus = z.infer<typeof SyllabusSchema>;
+
 async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
   try {
     const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: buffer });
     const result = await parser.getText();
     if (result && typeof result.text === 'string' && result.text.trim().length > 0) {
+      console.log(`[AI-DEBUG] PDFParse extracted ${result.text.trim().length} characters from PDF.`);
       return result.text.trim();
     }
   } catch (err) {
-    console.warn('[PDF Extract] PDFParse getText warning:', err);
+    console.warn('[AI-DEBUG] PDFParse extraction warning:', err);
   }
 
   try {
@@ -42,19 +45,22 @@ async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
       }
     }
     if (chunks.length > 0) {
-      return chunks.join('\n');
+      const streamText = chunks.join('\n');
+      console.log(`[AI-DEBUG] Stream parser extracted ${streamText.length} characters.`);
+      return streamText;
     }
   } catch (e) {
-    console.warn('[PDF Extract] Raw stream parsing warning:', e);
+    console.warn('[AI-DEBUG] Raw stream parsing warning:', e);
   }
 
   return '';
 }
 
-async function callGroqChat(messages: Array<{ role: string; content: string }>, jsonMode = true): Promise<string> {
+async function callGroqChat(messages: Array<{ role: string; content: string }>): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY is not configured in server environment');
 
+  console.log('[AI-DEBUG] Sending request to Groq API (model: llama-3.3-70b-versatile)...');
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -65,23 +71,28 @@ async function callGroqChat(messages: Array<{ role: string; content: string }>, 
       model: 'llama-3.3-70b-versatile',
       messages,
       temperature: 0.1,
-      response_format: jsonMode ? { type: 'json_object' } : undefined,
+      response_format: { type: 'json_object' },
     }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Groq API returned HTTP ${res.status}: ${errText}`);
+    console.error(`[AI-DEBUG] Groq API returned HTTP ${res.status}:`, errText);
+    throw new Error(`Groq API error (HTTP ${res.status}): ${errText}`);
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
+  const content = data.choices?.[0]?.message?.content || '';
+  console.log(`[AI-DEBUG] Groq response received (${content.length} bytes).`);
+  return content;
 }
 
-function getGeminiClient(): GoogleGenAI | null {
+async function callGemini(promptInstructions: string, userContent: string, fileData?: string, mimeType?: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-  return new GoogleGenAI({
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured in server environment');
+
+  console.log('[AI-DEBUG] Sending request to Google Gemini API (model: gemini-2.5-flash)...');
+  const ai = new GoogleGenAI({
     apiKey,
     httpOptions: {
       headers: {
@@ -89,15 +100,76 @@ function getGeminiClient(): GoogleGenAI | null {
       },
     },
   });
+
+  if (fileData) {
+    const cleanMime = mimeType || (fileData.startsWith('JVBER') ? 'application/pdf' : 'image/png');
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: cleanMime,
+              data: fileData,
+            },
+          },
+          {
+            text: `${promptInstructions}\n\nExtract subjects and chapters from the attached syllabus document/image.`,
+          },
+        ],
+      },
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+    return response.text || '{}';
+  }
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: `${promptInstructions}\n\nUSER PROVIDED SYLLABUS CONTENT:\n"""\n${userContent}\n"""`,
+    config: {
+      responseMimeType: 'application/json',
+    },
+  });
+  return response.text || '{}';
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  const startTime = Date.now();
+  console.log('[AI-DEBUG] /api/parse-syllabus endpoint reached');
+
   try {
-    const { text, fileData, mimeType, examContext } = req.body || {};
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        console.warn('[AI-DEBUG] Failed to parse raw string body as JSON');
+      }
+    } else if (Buffer.isBuffer(body)) {
+      try {
+        body = JSON.parse(body.toString('utf-8'));
+      } catch (e) {
+        console.warn('[AI-DEBUG] Failed to parse buffer body as JSON');
+      }
+    }
+
+    const { text, fileData, mimeType, examContext } = body || {};
+
+    console.log(`[AI-DEBUG] Input received: hasText=${Boolean(text)}, hasFile=${Boolean(fileData)}, examContext="${examContext || 'None'}"`);
 
     if (!text && !fileData) {
       return res.status(400).json({
@@ -118,6 +190,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
     }
+
+    console.log(`[AI-DEBUG] Extracted text length: ${extractedText.length} characters`);
 
     const promptInstructions = `You are a strict, faithful academic curriculum extraction assistant.
 Your task is to analyze the user's provided syllabus document/text and extract ONLY the actual subjects, chapters, and subtopics present in the document.
@@ -151,8 +225,12 @@ Respond ONLY with valid JSON strictly matching this schema:
   ]
 }`;
 
-    if (extractedText.length > 10) {
-      if (process.env.GROQ_API_KEY) {
+    let parsedResult: any = null;
+
+    // Strategy 1: Groq (llama-3.3-70b-versatile)
+    if (process.env.GROQ_API_KEY && extractedText.length > 10) {
+      try {
+        console.log('[AI-DEBUG] Attempting extraction via Groq...');
         const rawJson = await callGroqChat([
           {
             role: 'system',
@@ -162,66 +240,41 @@ Respond ONLY with valid JSON strictly matching this schema:
             role: 'user',
             content: `${promptInstructions}\n\nUSER PROVIDED SYLLABUS CONTENT:\n"""\n${extractedText}\n"""`,
           },
-        ], true);
+        ]);
 
-        const parsed = JSON.parse(rawJson);
-        const validated = SyllabusSchema.parse(parsed);
-        return res.status(200).json(validated);
-      }
-
-      const gemini = getGeminiClient();
-      if (gemini) {
-        const response = await gemini.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `${promptInstructions}\n\nUSER PROVIDED SYLLABUS CONTENT:\n"""\n${extractedText}\n"""`,
-          config: {
-            responseMimeType: 'application/json',
-          },
-        });
-
-        const parsed = JSON.parse(response.text || '{}');
-        const validated = SyllabusSchema.parse(parsed);
-        return res.status(200).json(validated);
+        const jsonCandidate = JSON.parse(rawJson);
+        parsedResult = SyllabusSchema.parse(jsonCandidate);
+        console.log(`[AI-DEBUG] Groq extraction succeeded: ${parsedResult.subjects.length} subjects found.`);
+      } catch (groqErr: any) {
+        console.error('[AI-DEBUG] Groq extraction error:', groqErr.message);
+        if (!process.env.GEMINI_API_KEY) {
+          throw groqErr;
+        }
       }
     }
 
-    if (fileData && process.env.GEMINI_API_KEY) {
-      const gemini = getGeminiClient();
-      if (gemini) {
-        const cleanMime = mimeType || (fileData.startsWith('JVBER') ? 'application/pdf' : 'image/png');
-        const response = await gemini.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: {
-            parts: [
-              {
-                inlineData: {
-                  mimeType: cleanMime,
-                  data: fileData,
-                },
-              },
-              {
-                text: `${promptInstructions}\n\nExtract subjects and chapters from the attached syllabus document/image.`,
-              },
-            ],
-          },
-          config: {
-            responseMimeType: 'application/json',
-          },
-        });
-
-        const parsed = JSON.parse(response.text || '{}');
-        const validated = SyllabusSchema.parse(parsed);
-        return res.status(200).json(validated);
-      }
+    // Strategy 2: Google Gemini Fallback or Image parsing
+    if (!parsedResult && process.env.GEMINI_API_KEY) {
+      console.log('[AI-DEBUG] Attempting extraction via Google Gemini...');
+      const rawJson = await callGemini(promptInstructions, extractedText, fileData, mimeType);
+      const jsonCandidate = JSON.parse(rawJson);
+      parsedResult = SyllabusSchema.parse(jsonCandidate);
+      console.log(`[AI-DEBUG] Gemini extraction succeeded: ${parsedResult.subjects.length} subjects found.`);
     }
 
-    return res.status(422).json({
-      error: "We couldn't process your syllabus. Please try again or enter it manually.",
-    });
+    if (!parsedResult) {
+      if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
+        throw new Error('No AI API keys configured. Please add GROQ_API_KEY or GEMINI_API_KEY in Vercel environment variables.');
+      }
+      throw new Error('Unable to extract syllabus from the provided input.');
+    }
+
+    console.log(`[AI-DEBUG] Validation passed. Returning ${parsedResult.subjects.length} subjects in ${Date.now() - startTime}ms.`);
+    return res.status(200).json(parsedResult);
   } catch (error: any) {
-    console.error('[Vercel Serverless /api/parse-syllabus] Error:', error);
+    console.error('[AI-DEBUG] /api/parse-syllabus failed:', error);
     return res.status(422).json({
-      error: "We couldn't process your syllabus. Please try again or enter it manually.",
+      error: error.message || "We couldn't process your syllabus. Please try again or enter it manually.",
       details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
     });
   }

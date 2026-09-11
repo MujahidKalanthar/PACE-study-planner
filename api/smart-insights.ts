@@ -15,12 +15,25 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    const { studentName, daysLeft, onTrackStatus, completedChapters, totalChapters, recentFeedback } = req.body || {};
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch (e) { /* ignore */ }
+    }
+
+    const { studentName, daysLeft, onTrackStatus, completedChapters, totalChapters, recentFeedback } = body || {};
 
     const prompt = `You are a calm, reassuring academic mentor for ${studentName || 'Student'} preparing for academic goals.
 Days left: ${daysLeft}. Status: ${onTrackStatus}. Completed: ${completedChapters}/${totalChapters} chapters.
@@ -29,28 +42,32 @@ Student recent feedback: ${recentFeedback || 'going well'}.
 Generate ONE concise, warm, practical insight (1 to 2 sentences max).`;
 
     if (process.env.GROQ_API_KEY) {
-      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: 'You are a warm, concise academic companion.' },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.3,
-        }),
-      });
+      try {
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: 'You are a warm, concise academic companion.' },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.3,
+          }),
+        });
 
-      if (groqRes.ok) {
-        const groqData = await groqRes.json();
-        const insight = groqData.choices?.[0]?.message?.content?.trim();
-        if (insight) {
-          return res.status(200).json({ insight });
+        if (groqRes.ok) {
+          const groqData = await groqRes.json();
+          const insight = groqData.choices?.[0]?.message?.content?.trim();
+          if (insight) {
+            return res.status(200).json({ insight });
+          }
         }
+      } catch (e) {
+        console.warn('Groq smart insight error:', e);
       }
     }
 

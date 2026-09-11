@@ -272,6 +272,62 @@ app.get('/api/health', (req: Request, res: Response) => {
   });
 });
 
+// AI Direct Diagnostic Test Endpoint
+app.get('/api/ai-test', async (req: Request, res: Response) => {
+  const diagnostics: Record<string, any> = {
+    timestamp: new Date().toISOString(),
+    environment: {
+      hasGroqKey: Boolean(process.env.GROQ_API_KEY),
+      groqKeyPrefix: process.env.GROQ_API_KEY ? `${process.env.GROQ_API_KEY.slice(0, 6)}...` : 'NONE',
+      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+      geminiKeyPrefix: process.env.GEMINI_API_KEY ? `${process.env.GEMINI_API_KEY.slice(0, 6)}...` : 'NONE',
+    },
+    tests: {},
+  };
+
+  if (process.env.GROQ_API_KEY) {
+    const start = Date.now();
+    try {
+      const resp = await callGroqChat([
+        { role: 'user', content: 'Reply with exactly: AI_TEST_OK' },
+      ], false);
+      diagnostics.tests.groq = {
+        status: 'SUCCESS',
+        latencyMs: Date.now() - start,
+        response: resp.trim(),
+      };
+    } catch (e: any) {
+      diagnostics.tests.groq = { status: 'ERROR', error: e.message };
+    }
+  } else {
+    diagnostics.tests.groq = { status: 'SKIPPED_NO_KEY' };
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    const start = Date.now();
+    try {
+      const gemini = getGeminiClient();
+      if (gemini) {
+        const resp = await gemini.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: 'Reply with exactly: AI_TEST_OK',
+        });
+        diagnostics.tests.gemini = {
+          status: 'SUCCESS',
+          latencyMs: Date.now() - start,
+          response: resp.text?.trim(),
+        };
+      }
+    } catch (e: any) {
+      diagnostics.tests.gemini = { status: 'ERROR', error: e.message };
+    }
+  } else {
+    diagnostics.tests.gemini = { status: 'SKIPPED_NO_KEY' };
+  }
+
+  res.json(diagnostics);
+});
+
 // Parse Syllabus Endpoint
 app.post('/api/parse-syllabus', async (req: Request, res: Response) => {
   const startTime = Date.now();
