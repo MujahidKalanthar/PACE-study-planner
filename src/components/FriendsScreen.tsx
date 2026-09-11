@@ -50,14 +50,14 @@ export const FriendsScreen: React.FC = () => {
   const [liveFriends, setLiveFriends] = useState(friends);
   const [liveRequests, setLiveRequests] = useState(friendRequests);
 
-  // Refresh live friends from Supabase when authUser changes
+  // Refresh live friends & incoming requests from Supabase when authUser changes
   useEffect(() => {
     if (authUser?.id) {
       fetchRealFriends(authUser.id).then((f) => {
-        if (f.length > 0) setLiveFriends(f);
+        setLiveFriends(f);
       });
       fetchIncomingFriendRequests(authUser.id).then((r) => {
-        if (r.length > 0) setLiveRequests(r);
+        setLiveRequests(r);
       });
     }
   }, [authUser?.id]);

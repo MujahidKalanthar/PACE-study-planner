@@ -77,7 +77,7 @@ export async function sendRealFriendRequest(
   if (supabase) {
     try {
       // 1. Check if already friends
-      const { data: existingFriendship, error: friendCheckErr } = await supabase
+      const { data: existingFriendship } = await supabase
         .from('friendships')
         .select('id')
         .match({ user_id: currentUserId, friend_id: targetUserId })
@@ -88,7 +88,7 @@ export async function sendRealFriendRequest(
       }
 
       // 2. Check if a pending request already exists
-      const { data: existingReq, error: reqCheckErr } = await supabase
+      const { data: existingReq } = await supabase
         .from('friend_requests')
         .select('id, status')
         .or(`and(from_user_id.eq.${currentUserId},to_user_id.eq.${targetUserId}),and(from_user_id.eq.${targetUserId},to_user_id.eq.${currentUserId})`)
@@ -139,6 +139,7 @@ export async function sendRealFriendRequest(
 
 /**
  * Fetch incoming pending friend requests for current user.
+ * Uses a robust 2-step query to prevent PostgREST foreign-key join resolution errors.
  */
 export async function fetchIncomingFriendRequests(
   currentUserId: string
@@ -146,32 +147,50 @@ export async function fetchIncomingFriendRequests(
   if (!supabase || !currentUserId) return [];
 
   try {
-    const { data, error } = await supabase
+    // Step 1: Query pending requests targeted at current user
+    const { data: requests, error: reqError } = await supabase
       .from('friend_requests')
-      .select('id, from_user_id, status, created_at, profiles!from_user_id(name, avatar_url, email)')
+      .select('id, from_user_id, status, created_at')
       .eq('to_user_id', currentUserId)
       .eq('status', 'pending');
 
-    if (error) {
-      console.warn('[Friends] Fetch requests error:', error);
+    if (reqError) {
+      console.warn('[Friends] Fetch requests DB error:', reqError.message);
       return [];
     }
 
-    if (data && Array.isArray(data)) {
-      return data.map((r: any) => ({
+    if (!requests || requests.length === 0) {
+      return [];
+    }
+
+    // Step 2: Fetch sender profile details for all senders in requests
+    const senderIds = requests.map((r: any) => r.from_user_id);
+    const { data: profiles, error: profError } = await supabase
+      .from('profiles')
+      .select('id, name, avatar_url, email')
+      .in('id', senderIds);
+
+    if (profError) {
+      console.warn('[Friends] Fetch sender profiles error:', profError.message);
+    }
+
+    const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+
+    return requests.map((r: any) => {
+      const p = profileMap.get(r.from_user_id);
+      return {
         id: r.id,
         fromUserId: r.from_user_id,
-        fromUserName: r.profiles?.name || r.profiles?.email?.split('@')[0] || 'Student',
-        fromUserAvatar: r.profiles?.avatar_url,
+        fromUserName: p?.name || p?.email?.split('@')[0] || 'Student',
+        fromUserAvatar: p?.avatar_url,
         createdAt: r.created_at,
         status: r.status,
-      }));
-    }
+      };
+    });
   } catch (err) {
-    console.warn('[Friends] Fetch requests error:', err);
+    console.warn('[Friends] Fetch requests exception:', err);
+    return [];
   }
-
-  return [];
 }
 
 /**
@@ -195,11 +214,15 @@ export async function acceptRealFriendRequest(
       .eq('id', requestId)
       .eq('to_user_id', currentUserId);
 
-    // 2. Insert bidirectional friendships
-    await supabase.from('friendships').upsert([
+    // 2. Insert bidirectional friendships (separately to ensure RLS compliance)
+    await supabase.from('friendships').upsert(
       { user_id: currentUserId, friend_id: fromUserId },
+      { onConflict: 'user_id,friend_id' }
+    );
+    await supabase.from('friendships').upsert(
       { user_id: fromUserId, friend_id: currentUserId },
-    ]);
+      { onConflict: 'user_id,friend_id' }
+    );
 
     // 3. Notify the original sender
     await supabase.from('notifications').insert({
@@ -240,42 +263,56 @@ export async function declineRealFriendRequest(
 
 /**
  * Fetch connected friends list with their live study stats.
+ * Uses a robust 2-step query to prevent PostgREST foreign-key join resolution errors.
  */
 export async function fetchRealFriends(currentUserId: string): Promise<Friend[]> {
   if (!supabase || !currentUserId) return [];
 
   try {
-    const { data, error } = await supabase
+    // Step 1: Get list of friend IDs for current user
+    const { data: friendships, error: friendErr } = await supabase
       .from('friendships')
-      .select('friend_id, profiles!friend_id(id, name, email, avatar_url, streak_days, weekly_study_minutes, show_stats_to_friends)')
+      .select('friend_id')
       .eq('user_id', currentUserId);
 
-    if (error) {
-      console.warn('[Friends] Fetch friends error:', error);
+    if (friendErr) {
+      console.warn('[Friends] Fetch friendships DB error:', friendErr.message);
       return [];
     }
 
-    if (data && Array.isArray(data)) {
-      return data
-        .filter((row: any) => row.profiles)
-        .map((row: any) => {
-          const p = row.profiles;
-          return {
-            id: p.id,
-            name: p.name || p.email?.split('@')[0] || 'Friend',
-            avatar: p.avatar_url,
-            streakDays: Number(p.streak_days) || 0,
-            weeklyStudyMinutes: Number(p.weekly_study_minutes) || 0,
-            showStats: p.show_stats_to_friends !== false,
-            nudgedToday: false,
-          };
-        });
+    if (!friendships || friendships.length === 0) {
+      return [];
     }
-  } catch (err) {
-    console.warn('[Friends] Fetch friends error:', err);
-  }
 
-  return [];
+    // Step 2: Fetch profile details for all friends
+    const friendIds = friendships.map((f: any) => f.friend_id);
+    const { data: profiles, error: profErr } = await supabase
+      .from('profiles')
+      .select('id, name, email, avatar_url, streak_days, weekly_study_minutes, show_stats_to_friends')
+      .in('id', friendIds);
+
+    if (profErr) {
+      console.warn('[Friends] Fetch friend profiles DB error:', profErr.message);
+    }
+
+    const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+
+    return friendIds
+      .map((id: string) => profileMap.get(id))
+      .filter(Boolean)
+      .map((p: any) => ({
+        id: p.id,
+        name: p.name || p.email?.split('@')[0] || 'Friend',
+        avatar: p.avatar_url,
+        streakDays: Number(p.streak_days) || 0,
+        weeklyStudyMinutes: Number(p.weekly_study_minutes) || 0,
+        showStats: p.show_stats_to_friends !== false,
+        nudgedToday: false,
+      }));
+  } catch (err) {
+    console.warn('[Friends] Fetch friends exception:', err);
+    return [];
+  }
 }
 
 /**

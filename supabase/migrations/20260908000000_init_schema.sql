@@ -349,7 +349,7 @@ CREATE POLICY "Users can view friendships"
 
 CREATE POLICY "Users can create friendships"
   ON public.friendships FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK (auth.uid() = user_id OR auth.uid() = friend_id);
 
 CREATE POLICY "Users can delete friendships"
   ON public.friendships FOR DELETE

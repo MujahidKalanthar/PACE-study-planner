@@ -317,14 +317,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Load friends & friend requests from Supabase
       fetchRealFriends(authUser.id).then((f) => {
-        if (f.length > 0) {
-          setData((prev: any) => ({ ...prev, friends: f }));
-        }
+        setData((prev: any) => ({ ...prev, friends: f }));
       });
       fetchIncomingFriendRequests(authUser.id).then((r) => {
-        if (r.length > 0) {
-          setData((prev: any) => ({ ...prev, friendRequests: r }));
-        }
+        setData((prev: any) => ({ ...prev, friendRequests: r }));
       });
     }
   }, [authUser?.id]);
